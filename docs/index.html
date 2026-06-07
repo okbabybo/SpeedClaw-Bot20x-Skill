@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>speedClaw Bot20x - 量化交易机器人</title>
+<title>speedClaw Bot20x - BTC+ETH 永续合约量化交易机器人</title>
+<meta name="description" content="Binance USDT-M永续合约量化交易机器人，专注BTC和ETH，20x杠杆，多周期EMA确认，StochRSI信号，趋势反转预警">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -19,7 +20,8 @@ body {
   padding: 40px 0;
 }
 .header h1 { color: #00d4aa; font-size: 36px; margin-bottom: 12px; }
-.header p { color: #9ca3af; font-size: 16px; }
+.header .subtitle { color: #9ca3af; font-size: 16px; margin-bottom: 16px; }
+.header .desc { color: #d1d5db; font-size: 14px; }
 
 .hero {
   background: rgba(0,212,170,0.1);
@@ -31,6 +33,40 @@ body {
 }
 .hero h2 { color: #00d4aa; font-size: 24px; margin-bottom: 16px; }
 .hero p { color: #d1d5db; font-size: 15px; line-height: 1.7; }
+
+.coins {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 20px 0;
+}
+.coin {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 20px;
+  text-align: center;
+}
+.coin-icon { font-size: 32px; margin-bottom: 8px; }
+.coin-name { font-size: 20px; font-weight: 700; color: #f0b90b; }
+.coin-name.eth { color: #627eea; }
+.coin-contract { color: #9ca3af; font-size: 13px; margin-top: 4px; }
+
+.features {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin: 30px 0;
+}
+.feature {
+  background: rgba(0,212,170,0.08);
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+}
+.feature-icon { font-size: 24px; margin-bottom: 8px; }
+.feature-name { font-size: 14px; font-weight: 600; }
+.feature-desc { color: #9ca3af; font-size: 12px; margin-top: 4px; }
 
 .tiers {
   display: grid;
@@ -105,21 +141,15 @@ body {
 .contact-label { color: #9ca3af; font-size: 13px; margin-bottom: 4px; }
 .contact-value { color: #00d4aa; font-size: 16px; font-weight: 600; }
 
-.features {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  margin: 20px 0;
-}
-.feature {
-  background: rgba(0,212,170,0.08);
-  border-radius: 8px;
+.risk {
+  background: rgba(239,68,68,0.1);
+  border: 1px solid rgba(239,68,68,0.3);
+  border-radius: 12px;
   padding: 16px;
-  text-align: center;
+  margin-top: 24px;
 }
-.feature-icon { font-size: 24px; margin-bottom: 8px; }
-.feature-name { font-size: 14px; font-weight: 600; }
-.feature-desc { color: #9ca3af; font-size: 12px; margin-top: 4px; }
+.risk-title { color: #ef4444; font-weight: 600; margin-bottom: 8px; }
+.risk-text { color: #9ca3af; font-size: 13px; line-height: 1.6; }
 
 .footer {
   text-align: center;
@@ -132,6 +162,7 @@ body {
 @media (max-width: 600px) {
   .features { grid-template-columns: 1fr 1fr; }
   .contact { grid-template-columns: 1fr; }
+  .coins { grid-template-columns: 1fr; }
 }
 </style>
 </head>
@@ -139,20 +170,33 @@ body {
 <div class="container">
   <div class="header">
     <h1>🦞 speedClaw Bot20x</h1>
-    <p>Binance USDT-M 永续合约量化交易机器人 · 20x杠杆</p>
+    <div class="subtitle">BTC + ETH 永续合约量化交易机器人</div>
+    <div class="desc">Binance USDT-M · 20x杠杆 · 多周期EMA确认 · StochRSI信号 · 趋势反转预警</div>
   </div>
 
   <div class="hero">
-    <h2>策略评分 87/100 · v5.2</h2>
-    <p>多周期EMA确认 + StochRSI信号 + 趋势反转预警<br>
-    20x杠杆运行 · 自动止损止盈 · 全天候监控</p>
+    <h2>🎯 交易品种</h2>
+    <div class="coins">
+      <div class="coin">
+        <div class="coin-icon">₿</div>
+        <div class="coin-name">BTC</div>
+        <div class="coin-contract">BTCUSDT 永续合约</div>
+        <div style="color:#9ca3af;font-size:12px;margin-top:8px;">流动性最强，波动稳定</div>
+      </div>
+      <div class="coin">
+        <div class="coin-icon">Ξ</div>
+        <div class="coin-name eth">ETH</div>
+        <div class="coin-contract">ETHUSDT 永续合约</div>
+        <div style="color:#9ca3af;font-size:12px;margin-top:8px;">波动更大，机会更多</div>
+      </div>
+    </div>
   </div>
 
   <div class="features">
     <div class="feature">
       <div class="feature-icon">📊</div>
       <div class="feature-name">多周期分析</div>
-      <div class="feature-desc">4H/1H/15m EMA</div>
+      <div class="feature-desc">4H/1H/15m EMA确认</div>
     </div>
     <div class="feature">
       <div class="feature-icon">⚡</div>
@@ -162,12 +206,12 @@ body {
     <div class="feature">
       <div class="feature-icon">🔒</div>
       <div class="feature-name">自动止损</div>
-      <div class="feature-desc">2%止损保护</div>
+      <div class="feature-desc">2%固定止损保护</div>
     </div>
     <div class="feature">
       <div class="feature-icon">📈</div>
       <div class="feature-name">追踪止盈</div>
-      <div class="feature-desc">利润保护机制</div>
+      <div class="feature-desc">TP1/TP2分批出仓</div>
     </div>
     <div class="feature">
       <div class="feature-icon">🔔</div>
@@ -176,8 +220,8 @@ body {
     </div>
     <div class="feature">
       <div class="feature-icon">🛡️</div>
-      <div class="feature-name">连赢加速</div>
-      <div class="feature-desc">RSI门槛降低</div>
+      <div class="feature-name">趋势过滤</div>
+      <div class="feature-desc">4H/1H冲突时跳过</div>
     </div>
   </div>
 
@@ -261,9 +305,17 @@ body {
     </div>
   </div>
 
+  <div class="risk">
+    <div class="risk-title">⚠️ 风险提示</div>
+    <div class="risk-text">
+      本项目仅供学习和研究使用。实盘交易存在风险，请确保充分理解策略后再使用。
+      20x杠杆具有高风险，可能导致本金损失。建议使用闲钱操作，并持续监控策略运行状态。
+    </div>
+  </div>
+
   <div class="footer">
-    <p>speedClaw Bot20x v5.2 · 仅供学习和研究使用</p>
-    <p style="margin-top:8px;">实盘交易存在风险，请确保充分理解策略后再使用</p>
+    <p>speedClaw Bot20x v5.2 · BTC + ETH 永续合约量化交易</p>
+    <p style="margin-top:8px;">GitHub: github.com/okbabybo/SpeedClaw-Bot20x-Skill</p>
   </div>
 </div>
 </body>
