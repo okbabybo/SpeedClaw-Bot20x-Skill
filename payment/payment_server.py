@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-speedClaw Bot20x - 付款确认自动发货系统
-用户付款后提交TX哈希，系统验证后自动生成授权码
+speedClaw Bot20x - 固定地址订阅系统
+三个套餐对应三个固定收款地址，验证地址+金额即可
 """
 
 import os
@@ -9,31 +9,38 @@ import sys
 import json
 import requests
 import time
-import hashlib
 from datetime import datetime, timedelta
 from flask import Flask, request, render_template_string, jsonify
+import secrets
 
 app = Flask(__name__)
 
-# === 配置 ===
-LICENSE_DB = "/root/.openclaw/workspace/speedClaw-Bot20x-Skill/.license_db.json"
-RECIPIENT_ADDRESS = "0xFb4f3eFA1FeB256131FEEf2E2Ca4B2F2e9b22d6E"
-PRICES_USDT = {
-    "monthly": 9.9,
-    "quarterly": 24.9,
-    "yearly": 79.9
-}
-PRICE_NAMES = {
-    "monthly": "月度订阅 ($9.9)",
-    "quarterly": "季度订阅 ($24.9)",
-    "yearly": "年度订阅 ($79.9)"
+# ===三个套餐对应三个收款地址 ===
+SUBSCRIPTION_TIERS = {
+    "monthly": {
+        "name": "月度订阅",
+        "price": 9.9,
+        "days": 30,
+        "address": "0xFb4f3eFA1FeB256131FEEf2E2Ca4B2F2e9b22d6E"
+    },
+    "quarterly": {
+        "name": "季度订阅",
+        "price": 24.9,
+        "days": 90,
+        "address": "0x6CDD7d0e7865f6DaDB9178dd114890ABD5d5323b"
+    },
+    "yearly": {
+        "name": "年度订阅",
+        "price": 79.9,
+        "days": 365,
+        "address": "0x352f5Cb1CA167500D27741676ab9efA4B07D3D30"
+    }
 }
 
-# BSC RPC
+LICENSE_DB = "/root/.openclaw/workspace/speedClaw-Bot20x-Skill/.license_db.json"
 BSC_RPC = "https://bsc-dataseed.binance.org/"
 
-def generate_license_key():
-    import secrets
+def generate_key():
     return "SCB-" + secrets.token_hex(8).upper()
 
 def load_db():
@@ -48,10 +55,9 @@ def save_db(db):
     with open(LICENSE_DB, "w") as f:
         json.dump(db, f, indent=2)
 
-def verify_bnb_tx(tx_hash, expected_amount):
-    """验证BNB Smart Chain上的USDT转账"""
+def verify_transfer(tx_hash, expected_addr, expected_amount):
+    """验证USDT BEP20转账"""
     try:
-        # BSC用eth_getTransactionByHash查
         payload = {
             "jsonrpc": "2.0",
             "method": "eth_getTransactionByHash",
@@ -62,59 +68,75 @@ def verify_bnb_tx(tx_hash, expected_amount):
         data = resp.json()
         
         if "result" not in data or not data["result"]:
-            return False, "交易不存在或 Pending"
+            return False, "交易不存在或Pending"
         
         tx = data["result"]
         to_addr = tx.get("to", "").lower()
-        value_wei = int(tx.get("value", "0x0"), 16)
-        value_bnb = value_wei / 1e18
         
-        # 检查接收地址
-        if to_addr != RECIPIENT_ADDRESS.lower():
-            return False, f"收款地址不匹配：{to_addr}"
+        # 检查收款地址
+        if to_addr != expected_addr.lower():
+            return False, f"收款地址不匹配"
         
-        # 检查金额（至少覆盖订阅费用）
-        if value_bnb < expected_amount * 0.95:  # 允许5%误差
-            return False, f"金额不足：{value_bnb:.4f} BNB（需要 {expected_amount} USDT）"
+        # 获取input data中的USDT转账信息
+        input_data = tx.get("input", "0x")
         
-        return True, f"验证成功：{value_bnb:.4f} BNB"
+        # USDT合约调用（transfer函数）
+        if len(input_data) >= 138:
+            # 解析USDT转账金额
+            # transfer后32字节是amount
+            try:
+                amount_hex = "0x" + input_data[74+24:138]
+                amount = int(amount_hex, 16) / 1e18
+            except:
+                # 如果无法解析input data，用value字段
+                value_wei = int(tx.get("value", "0x0"), 16)
+                amount = value_wei / 1e18
+        else:
+            value_wei = int(tx.get("value", "0x0"), 16)
+            amount = value_wei / 1e18
+        
+        # 允许10%误差
+        if amount < expected_amount * 0.9:
+            return False, f"金额不足：收到 {amount:.2f} USDT，需要 {expected_amount} USDT"
+        
+        return True, f"验证成功：{amount:.2f} USDT"
+        
     except requests.exceptions.Timeout:
         return False, "网络超时，请稍后重试"
     except Exception as e:
         return False, f"验证失败：{str(e)}"
 
-def generate_license(email, plan, tx_hash):
-    """生成授权码"""
+def create_license(tx_hash, tier_info):
     db = load_db()
-    key = generate_license_key()
     
-    # 检查是否已用过这个TX
+    # 检查是否已用过
     for lic in db.get("licenses", []):
         if lic.get("tx_hash") == tx_hash:
-            return None, "此交易已使用过，请勿重复提交"
+            return None, lic["key"], "此TX已使用过，授权码：" + lic["key"]
     
+    key = generate_key()
     license_info = {
         "key": key,
-        "email": email,
-        "plan": plan,
+        "plan": tier_info["name"],
+        "tier": list(SUBSCRIPTION_TIERS.keys())[list(SUBSCRIPTION_TIERS.values()).index(tier_info)],
         "tx_hash": tx_hash,
         "created": datetime.now().isoformat(),
-        "expires": (datetime.now() + timedelta(days=30 if plan=="monthly" else 90 if plan=="quarterly" else 365)).isoformat(),
+        "expires": (datetime.now() + timedelta(days=tier_info["days"])).isoformat(),
         "active": True
     }
     
     db["licenses"].append(license_info)
     save_db(db)
     
-    return key, "授权码生成成功"
+    return key, key, "授权码生成成功"
 
-HTML_TEMPLATE = '''
+HTML = '''
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>speedClaw Bot20x - 订阅授权</title>
+<title>🦞 speedClaw Bot20x - 订阅授权</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -124,7 +146,7 @@ body {
   color: #e0e6ed;
   padding: 20px;
 }
-.container { max-width: 600px; margin: 0 auto; }
+.container { max-width: 520px; margin: 0 auto; }
 .header {
   text-align: center;
   padding: 30px 0;
@@ -137,16 +159,40 @@ body {
   background: #111827;
   border: 1px solid #1f2937;
   border-radius: 16px;
-  padding: 30px;
+  padding: 24px;
   margin-bottom: 20px;
 }
-.section-title {
+.tier {
+  background: #1a2332;
+  border: 1px solid #1f2937;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+.tier:hover { border-color: #00d26a; }
+.tier.selected { border-color: #00d26a; background: rgba(0,210,106,0.05); }
+.tier-name {
   font-size: 16px;
-  color: #00d26a;
-  margin-bottom: 20px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  font-weight: 600;
+  color: #e0e6ed;
+  margin-bottom: 6px;
+}
+.tier-price { font-size: 24px; color: #00d26a; font-weight: 700; }
+.tier-days { font-size: 12px; color: #6b7280; }
+.tier-addr {
+  font-size: 11px;
+  color: #4b5563;
+  margin-top: 8px;
+  word-break: break-all;
+}
+.section-title {
+  font-size: 14px;
+  color: #6b7280;
+  margin-bottom: 16px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
 }
 .input-group { margin-bottom: 16px; }
 .input-group label {
@@ -155,7 +201,7 @@ body {
   color: #6b7280;
   margin-bottom: 6px;
 }
-.input-group input, .input-group select {
+.input-group input {
   width: 100%;
   padding: 12px 16px;
   background: #1a2332;
@@ -164,26 +210,7 @@ body {
   color: #e0e6ed;
   font-size: 14px;
 }
-.input-group input:focus, .input-group select:focus {
-  outline: none;
-  border-color: #00d26a;
-}
-.price-card {
-  background: #1a2332;
-  border-radius: 12px;
-  padding: 16px;
-  margin-bottom: 20px;
-}
-.price-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 8px 0;
-  border-bottom: 1px solid #1f2937;
-  font-size: 14px;
-}
-.price-row:last-child { border: none; }
-.price-row .name { color: #9ca3af; }
-.price-row .value { font-weight: 600; }
+.input-group input:focus { outline: none; border-color: #00d26a; }
 .btn {
   width: 100%;
   padding: 14px;
@@ -194,12 +221,8 @@ body {
   font-size: 16px;
   font-weight: 600;
   cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
 }
-.btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 20px rgba(0,210,106,0.3);
-}
+.btn:hover { transform: translateY(-2px); box-shadow: 0 4px 20px rgba(0,210,106,0.3); }
 .btn:disabled { opacity: 0.6; cursor: not-allowed; }
 .result {
   margin-top: 20px;
@@ -208,47 +231,19 @@ body {
   font-size: 14px;
   display: none;
 }
-.result.success {
-  background: rgba(0,210,106,0.1);
-  border: 1px solid #00d26a;
-  color: #00d26a;
-}
-.result.error {
-  background: rgba(255,71,87,0.1);
-  border: 1px solid #ff4757;
-  color: #ff4757;
-}
+.result.success { background: rgba(0,210,106,0.1); border: 1px solid #00d26a; }
+.result.error { background: rgba(255,71,87,0.1); border: 1px solid #ff4757; }
+.result.info { background: rgba(59,130,246,0.1); border: 1px solid #3b82f6; }
 .license-key {
   background: #0a0e17;
-  padding: 12px 16px;
+  padding: 14px;
   border-radius: 8px;
   font-family: monospace;
   font-size: 18px;
   color: #00d26a;
   word-break: break-all;
-  margin-top: 12px;
+  margin-top: 10px;
 }
-.copy-btn {
-  margin-top: 12px;
-  padding: 8px 20px;
-  background: #1f2937;
-  border: none;
-  border-radius: 6px;
-  color: #e0e6ed;
-  cursor: pointer;
-}
-.copy-btn:hover { background: #374151; }
-.info-box {
-  background: #1a2332;
-  border-radius: 12px;
-  padding: 16px;
-  margin-top: 20px;
-  font-size: 13px;
-  color: #9ca3af;
-}
-.info-box h4 { color: #e0e6ed; margin-bottom: 12px; }
-.info-box ol { padding-left: 20px; }
-.info-box li { margin-bottom: 8px; }
 .footer {
   text-align: center;
   padding: 20px;
@@ -261,56 +256,44 @@ body {
 <div class="container">
   <div class="header">
     <h1>🦞 speedClaw Bot20x</h1>
-    <p>订阅授权 - 自动发货系统</p>
+    <p>订阅授权 -验证付款即用</p>
   </div>
 
   <div class="card">
-    <div class="section-title">💰 套餐选择</div>
-    <div class="price-card">
-      <div class="price-row"><span class="name">月度订阅</span><span class="value">$9.9 / 30天</span></div>
-      <div class="price-row"><span class="name">季度订阅</span><span class="value">$24.9 / 90天</span></div>
-      <div class="price-row"><span class="name">年度订阅</span><span class="value">$79.9 / 365天</span></div>
+    <div class="section-title">选择套餐（向对应地址转账）</div>
+    
+    <div class="tier" data-tier="monthly" onclick="selectTier('monthly')">
+      <div class="tier-name">月度订阅</div>
+      <div class="tier-price">$9.9</div>
+      <div class="tier-days">30天有效</div>
+      <div class="tier-addr">0xFb4f3eFA1FeB256131FEEf2E2Ca4B2F2e9b22d6E</div>
     </div>
-
-    <div class="section-title">📝 提交付款信息</div>
-    <form id="paymentForm">
-      <div class="input-group">
-        <label>选择套餐 *</label>
-        <select name="plan" required>
-          <option value="">请选择套餐</option>
-          <option value="monthly">月度订阅 - $9.9</option>
-          <option value="quarterly">季度订阅 - $24.9</option>
-          <option value="yearly">年度订阅 - $79.9</option>
-        </select>
-      </div>
-      <div class="input-group">
-        <label>USDT BEP20 转账 TX Hash *</label>
-        <input type="text" name="tx_hash" placeholder="粘贴交易哈希（如 0x...）" required>
-      </div>
-      <div class="input-group">
-        <label>邮箱 *</label>
-        <input type="email" name="email" placeholder="用于接收授权码" required>
-      </div>
-      <div class="input-group">
-        <label>Telegram（选填）</label>
-        <input type="text" name="telegram" placeholder="@username">
-      </div>
-      <button type="submit" class="btn" id="submitBtn">验证并获取授权码</button>
-    </form>
-
-    <div class="result" id="resultBox"></div>
+    
+    <div class="tier" data-tier="quarterly" onclick="selectTier('quarterly')">
+      <div class="tier-name">季度订阅</div>
+      <div class="tier-price">$24.9</div>
+      <div class="tier-days">90天有效</div>
+      <div class="tier-addr">0x6CDD7d0e7865f6DaDB9178dd114890ABD5d5323b</div>
+    </div>
+    
+    <div class="tier" data-tier="yearly" onclick="selectTier('yearly')">
+      <div class="tier-name">年度订阅</div>
+      <div class="tier-price">$79.9</div>
+      <div class="tier-days">365天有效</div>
+      <div class="tier-addr">0x352f5Cb1CA167500D27741676ab9efA4B07D3D30</div>
+    </div>
   </div>
 
-  <div class="info-box">
-    <h4>📋 操作步骤</h4>
-    <ol>
-      <li>向以下地址转账对应套餐金额的 USDT（BEP20）：<br>
-      <code style="color:#00d26a;word-break:break-all;">0xFb4f3eFA1FeB256131FEEf2E2Ca4B2F2e9b22d6E</code></li>
-      <li>复制转账交易哈希（TX Hash）粘贴到上方输入框</li>
-      <li>填写邮箱和联系方式</li>
-      <li>点击「验证并获取授权码」</li>
-      <li>验证通过后自动显示授权码</li>
-    </ol>
+  <div class="card">
+    <div class="section-title">粘贴转账TX哈希</div>
+    <form id="form">
+      <div class="input-group">
+        <label>USDT BEP20 转账 TX Hash *</label>
+        <input type="text" name="tx_hash" placeholder="0x..." required id="txInput">
+      </div>
+      <button type="submit" class="btn" id="btn">验证并获取授权码</button>
+    </form>
+    <div class="result" id="result"></div>
   </div>
 
   <div class="footer">
@@ -319,57 +302,68 @@ body {
 </div>
 
 <script>
-const form = document.getElementById('paymentForm');
-const resultBox = document.getElementById('resultBox');
-const submitBtn = document.getElementById('submitBtn');
+let selectedTier = null;
 
-form.addEventListener('submit', async (e) => {
+function selectTier(tier) {
+  selectedTier = tier;
+  document.querySelectorAll('.tier').forEach(el => el.classList.remove('selected'));
+  document.querySelector(`[data-tier="${tier}"]`).classList.add('selected');
+}
+
+document.getElementById('form').addEventListener('submit', async (e) => {
   e.preventDefault();
-  submitBtn.disabled = true;
-  submitBtn.textContent = '验证中...';
-  resultBox.style.display = 'none';
+  const btn = document.getElementById('btn');
+  const result = document.getElementById('result');
+  const tx = document.getElementById('txInput').value.trim();
   
-  const formData = new FormData(form);
-  const data = Object.fromEntries(formData);
+  if (!selectedTier) {
+    result.className = 'result error';
+    result.style.display = 'block';
+    result.innerHTML = '请先选择套餐';
+    return;
+  }
+  
+  if (!tx || !tx.startsWith('0x')) {
+    result.className = 'result error';
+    result.style.display = 'block';
+    result.innerHTML = '请输入有效的TX哈希';
+    return;
+  }
+  
+  btn.disabled = true;
+  btn.textContent = '验证中...';
+  result.style.display = 'none';
   
   try {
     const resp = await fetch('/api/verify', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(data)
+      body: JSON.stringify({tx_hash: tx, tier: selectedTier})
     });
-    const result = await resp.json();
+    const data = await resp.json();
     
-    if (result.success) {
-      resultBox.className = 'result success';
-      resultBox.innerHTML = `
-        <strong>✅ 验证通过！</strong><br>
-        您的授权码：<div class="license-key">${result.license_key}</div>
-        <button class="copy-btn" onclick="copyKey('${result.license_key}')">复制授权码</button>
+    if (data.success) {
+      result.className = 'result success';
+      result.innerHTML = `
+        <strong>✅ 验证通过！</strong><br><br>
+        您的授权码：<div class="license-key">${data.license_key}</div>
         <p style="margin-top:12px;font-size:12px;color:#6b7280;">
-          到期：${result.expires}<br>
-          有效期：${result.days}天
+          有效期：${data.days}天｜到期：${data.expires}
         </p>
       `;
     } else {
-      resultBox.className = 'result error';
-      resultBox.innerHTML = `<strong>❌ 验证失败：${result.message}</strong>`;
+      result.className = 'result error';
+      result.innerHTML = `<strong>❌ ${data.message}</strong>`;
     }
-  } catch (err) {
-    resultBox.className = 'result error';
-    resultBox.innerHTML = `<strong>❌ 网络错误，请稍后重试</strong>`;
+  } catch (e) {
+    result.className = 'result error';
+    result.innerHTML = '<strong>网络错误，请稍后重试</strong>';
   }
   
-  resultBox.style.display = 'block';
-  submitBtn.disabled = false;
-  submitBtn.textContent = '验证并获取授权码';
+  result.style.display = 'block';
+  btn.disabled = false;
+  btn.textContent = '验证并获取授权码';
 });
-
-function copyKey(key) {
-  navigator.clipboard.writeText(key).then(() => {
-    alert('授权码已复制！');
-  });
-}
 </script>
 </body>
 </html>
@@ -377,53 +371,45 @@ function copyKey(key) {
 
 @app.route('/')
 def index():
-    return render_template_string(HTML_TEMPLATE)
+    return render_template_string(HTML)
 
 @app.route('/api/verify', methods=['POST'])
 def verify():
     data = request.json
     tx_hash = data.get('tx_hash', '').strip()
-    plan = data.get('plan', '').strip()
-    email = data.get('email', '').strip()
+    tier = data.get('tier', '').strip()
     
-    if not tx_hash or not plan or not email:
-        return jsonify({"success": False, "message": "请填写完整信息"})
+    if not tx_hash or not tier:
+        return jsonify({"success": False, "message": "参数不完整"})
     
-    if not tx_hash.startswith('0x') or len(tx_hash) < 64:
-        return jsonify({"success": False, "message": "TX Hash 格式不正确"})
-    
-    if plan not in PRICES_USDT:
+    if tier not in SUBSCRIPTION_TIERS:
         return jsonify({"success": False, "message": "未知的套餐"})
     
-    # 验证交易
-    expected_amount = PRICES_USDT[plan]
-    valid, msg = verify_bnb_tx(tx_hash, expected_amount)
+    tier_info = SUBSCRIPTION_TIERS[tier]
     
+    # 验证
+    valid, msg = verify_transfer(tx_hash, tier_info["address"], tier_info["price"])
     if not valid:
         return jsonify({"success": False, "message": msg})
     
     # 生成授权码
-    key, gen_msg = generate_license(email, plan, tx_hash)
-    
-    if key is None:
-        return jsonify({"success": False, "message": gen_msg})
-    
-    # 计算到期日
-    days = 30 if plan == "monthly" else 90 if plan == "quarterly" else 365
-    expires = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
+    _, key, gen_msg = create_license(tx_hash, tier_info)
     
     return jsonify({
         "success": True,
         "license_key": key,
-        "expires": expires,
-        "days": days
+        "days": tier_info["days"],
+        "expires": (datetime.now() + timedelta(days=tier_info["days"])).strftime('%Y-%m-%d')
     })
 
 if __name__ == '__main__':
     print("="*60)
-    print("speedClaw Bot20x - 付款确认自动发货系统")
+    print("speedClaw Bot20x - 固定地址订阅系统")
     print("="*60)
     print("访问：http://localhost:5001")
-    print("按 Ctrl+C 停止")
+    print()
+    print("三个套餐收款地址：")
+    for tier, info in SUBSCRIPTION_TIERS.items():
+        print(f"  {info['name']} (${info['price']}): {info['address']}")
     print()
     app.run(host='0.0.0.0', port=5001, debug=False)

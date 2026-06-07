@@ -1,131 +1,59 @@
 # speedClaw Bot20x
 
-> A Binance USDT-M永续合约量化交易机器人
+> Binance USDT-M永续合约量化交易机器人
 > 20x杠杆 · 多周期EMA确认 · StochRSI信号 · 趋势反转预警
 
 **策略评分：87/100** | v5.2 | Python 3
 
 ---
 
-## 联系方式
+## 订阅授权
 
-📬 有问题或需要授权码请联系：
+本项目采用**固定地址订阅模式**，直接向套餐对应地址转账即可。
+
+### 套餐价格
+
+| 套餐 | 价格 | 收款地址 |
+|------|------|----------|
+| 月度 | $9.9 | `0xFb4f3eFA1FeB256131FEEf2E2Ca4B2F2e9b22d6E` |
+| 季度 | $24.9 | `0x6CDD7d0e7865f6DaDB9178dd114890ABD5d5323b` |
+| 年度 | $79.9 | `0x352f5Cb1CA167500D27741676ab9efA4B07D3D30` |
+
+### 使用步骤
+
+```
+1. 向对应套餐地址转账USDT（BEP20）
+2. 复制转账TX哈希
+3. 打开自动发货页面：http://43.129.181.252:5001
+4. 选择套餐 + 粘贴TX哈希 → 点击验证
+5. 自动显示授权码 ✅
+```
+
+---
+
+##联系方式
+
+📬 有问题请联系：
 - Telegram: @Okbabybo
 - Email: 570511887@qq.com
 
 ---
 
-## 订阅授权
-
-本项目采用**订阅授权模式**，需要授权码才能运行。
-
-### 套餐价格
-
-| 套餐 | 价格 | 说明 |
-|------|------|------|
-| 月度 | $9.9/月 | 30天有效 |
-| 季度 | $24.9/季 | 90天有效 |
-| 年度 | $79.9/年 | 365天有效 |
-
-### 付款方式
-
-**USDT (BEP20 - BNB Smart Chain)**：
-```
-0xFb4f3eFA1FeB256131FEEf2E2Ca4B2F2e9b22d6E
-```
-
-### 自动发货
-
-付款后访问自动发货页面，提交 TX Hash 即可自动获取授权码：
-
-```bash
-cd payment
-python payment_server.py
-# 访问 http://你的服务器IP:5001
-```
-
-### 获取授权码
-
-1. 完成付款后联系管理员
-2. 管理员生成授权码并发送
-3. 将授权码保存到 `.license` 文件：
-   ```bash
-   cp license.template .license
-   echo '你的授权码' > .license
-   ```
-
-### 授权管理（管理员）
-
-```bash
-# 生成授权码
-python license_manager.py generate user@example.com monthly
-
-# 查看授权码
-python license_manager.py list
-
-# 撤销授权码
-python license_manager.py revoke SCB-XXXXXXXXXXXXXXXX
-```
-
----
-
 ## 快速开始
 
-### 1. 安装依赖
-
 ```bash
-pip install requests
-```
+# 克隆仓库
+git clone https://github.com/okbabybo/SpeedClaw-Bot20x-Skill.git
+cd SpeedClaw-Bot20x-Skill/bot
 
-### 2.配置文件
-
-```bash
-cd bot
+# 配置
 cp config.py.template config.py
-# 编辑config.py，填入币安API密钥
-```
-
-### 3. 配置授权码
-
-```bash
 cp license.template .license
-echo 'YOUR_LICENSE_KEY' > .license
-```
+# 编辑config.py填入API密钥
 
-### 4. 启动
-
-```bash
-# 直接运行
-python bot_20x.py
-
-# PM2守护模式
+# 启动
 pm2 start bot_20x.py --name bot20x
-pm2 logs bot20x
 ```
-
----
-
-## 策略核心
-
-### 信号系统
-
-| 信号 | 条件 | 触发 |
-|------|------|------|
-| 做多 | RSI/StochRSI超卖 + 趋势向上 | 评分≥6.5 |
-| 做空 | RSI/StochRSI超买 + 趋势向下 | 评分≥6.5 |
-| 逆势 | 价格偏离EMA +极端RSI | 评分≥6.5 |
-
-### 风控
-
-- 固定2%止损
-- 总仓位按保证金计算（≤150%余额）
-- 回撤≥15%自动减半仓
-- 连亏3次熔断15分钟
-
-### 止盈
-
-- TP1：浮盈≥2%出半场
-- TP2：浮盈≥4%回撤0.8%出清
 
 ---
 
@@ -137,32 +65,18 @@ speedClaw-Bot20x-Skill/
 │   ├── bot_20x.py           # 主策略脚本（需授权）
 │   ├── config.py.template    # API配置模板
 │   ├── license.template      # 授权码模板
-│   └── license_manager.py # 授权管理工具
+│   └── license_manager.py   # 授权管理工具
+├── payment/
+│   └── payment_server.py    # 自动发货系统
 ├── dashboard/
-│   ├── bot_dashboard_api.py   # Web控制台后端
+│   ├── bot_dashboard_api.py  # Web控制台后端
 │   └── dashboard.html         # Web控制台前端
 ├── docs/
-│   └── 策略手册.md           # 详细策略文档
+│   └── 策略手册.md # 详细策略文档
 ├── skill/
 │   └── SKILL.md              # OpenClaw Skill
-├── LICENSE
-├── README.md
-├── requirements.txt
-└── setup.sh
+└── README.md
 ```
-
----
-
-## Web控制台
-
-访问 `dashboard.html` 或启动API服务：
-
-```bash
-python dashboard/bot_dashboard_api.py
-# 访问 http://localhost:5000
-```
-
-功能：查看持仓、信号评分、手动平仓、重启Bot
 
 ---
 
@@ -170,7 +84,7 @@ python dashboard/bot_dashboard_api.py
 
 | 版本 | 日期 | 改动 |
 |------|------|------|
-| v5.2 | 2026-06-07 | 新增订阅授权系统 + 趋势反转预警 |
+| v5.2 | 2026-06-07 | 固定地址订阅系统 + 趋势反转预警 |
 | v5.1 | 2026-06-07 | 总仓位按保证金计算 |
 | v5.0 | 2026-06-06 | ADX + ATR + 连赢加速 + 逆势模式 |
 
