@@ -7,35 +7,33 @@
 
 ---
 
-## 订阅授权
-
-本项目采用**自动监控订阅模式**，用户扫码支付后自动获取授权码。
+## 📦 购买方式
 
 ### 套餐价格
 
-| 套餐 | 价格 | 收款地址 |
-|------|------|----------|
+| 套餐 | 价格 | 收款地址（USDT BEP20） |
+|------|------|----------------------|
 | 月度 | $9.9 | `0xFb4f3eFA1FeB256131FEEf2E2Ca4B2F2e9b22d6E` |
 | 季度 | $24.9 | `0x6CDD7d0e7865f6DaDB9178dd114890ABD5d5323b` |
 | 年度 | $79.9 | `0x352f5Cb1CA167500D27741676ab9efA4B07D3D30` |
 
-### 使用步骤
+### 使用流程
 
 ```
-1. 打开订阅页面：http://43.129.181.252
-2. 选择套餐 → 显示收款二维码
-3. 使用TP钱包/小狐狸等扫码支付
-4. 输入您的钱包地址 → 点击验证
-5. 自动显示授权码 ✅
+1. 向对应套餐地址转账USDT
+2. 联系 Telegram @Okbabybo 或 邮箱 570511887@qq.com
+3. 提供转账截图 + 邮箱
+4. 收到完整策略文件和配置指南
 ```
 
 ---
 
-##联系方式
+## 联系方式
 
-📬 有问题请联系：
-- Telegram: @Okbabybo
-- Email: 570511887@qq.com
+| 方式 | 信息 |
+|------|------|
+| Telegram | @Okbabybo |
+| Email | 570511887@qq.com |
 
 ---
 
@@ -48,8 +46,7 @@ cd SpeedClaw-Bot20x-Skill/bot
 
 # 配置
 cp config.py.template config.py
-cp license.template .license
-# 编辑config.py填入API密钥
+# 编辑config.py填入你的Binance API密钥
 
 # 启动
 pm2 start bot_20x.py --name bot20x
@@ -62,19 +59,16 @@ pm2 start bot_20x.py --name bot20x
 ```
 speedClaw-Bot20x-Skill/
 ├── bot/
-│   ├── bot_20x.py           # 主策略脚本（需授权）
-│   ├── config.py.template    # API配置模板
-│   ├── license.template      # 授权码模板
+│   ├── bot_20x.py           # 主策略脚本
+│   ├── config.py.template   # API配置模板
 │   └── license_manager.py   # 授权管理工具
-├── payment/
-│   └── payment_server.py    # 自动订阅系统（监控+验证）
 ├── dashboard/
 │   ├── bot_dashboard_api.py  # Web控制台后端
 │   └── dashboard.html        # Web控制台前端
 ├── docs/
-│   └── 策略手册.md # 详细策略文档
+│   └── 策略手册.md           # 详细策略文档
 ├── skill/
-│   └── SKILL.md              # OpenClaw Skill
+│   └── SKILL.md             # OpenClaw Skill
 └── README.md
 ```
 
@@ -84,7 +78,7 @@ speedClaw-Bot20x-Skill/
 
 | 版本 | 日期 | 改动 |
 |------|------|------|
-| v5.2 | 2026-06-07 | 自动监控订阅系统 + 趋势反转预警 |
+| v5.2 | 2026-06-07 | 趋势冲突过滤 + 趋势反转预警 |
 | v5.1 | 2026-06-07 | 总仓位按保证金计算 |
 | v5.0 | 2026-06-06 | ADX + ATR + 连赢加速 + 逆势模式 |
 
