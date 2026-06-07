@@ -19,10 +19,20 @@
 | 季度 | $24.9/季 | 90天有效 |
 | 年度 | $79.9/年 | 365天有效 |
 
+### 付款方式
+
+**USDT (BEP20 - BNB Smart Chain)**：
+```
+0xFb4f3eFA1FeB256131FEEf2E2Ca4B2F2e9b22d6E
+```
+
+付款后联系管理员获取授权码。
+
 ### 获取授权码
 
-1. 联系管理员获取授权码
-2. 将授权码保存到 `.license` 文件：
+1. 完成付款后联系管理员
+2. 管理员生成授权码并发送
+3. 将授权码保存到 `.license` 文件：
    ```bash
    cp license.template .license
    echo '你的授权码' > .license
