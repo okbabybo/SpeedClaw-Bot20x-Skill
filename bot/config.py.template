@@ -1,0 +1,11 @@
+# Binance API Configuration
+# Copy this file to config.py and fill in your API credentials
+# NEVER commit config.py to GitHub!
+
+API_KEY = "YOUR_BINANCE_API_KEY"
+SECRET = "YOUR_BINANCE_API_SECRET"
+
+# Optional: Use environment variables (recommended for production)
+# import os
+# API_KEY = os.getenv("BINANCE_API_KEY")
+# SECRET = os.getenv("BINANCE_API_SECRET")

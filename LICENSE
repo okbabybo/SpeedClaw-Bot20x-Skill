@@ -1,0 +1,44 @@
+MIT License
+
+Copyright (c) 2026 okbabbo
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+## 风险提示
+
+使用本软件进行实盘交易存在风险，包括但不限于：
+
+1. 市场波动可能导致资金损失
+2. 策略可能无法适应所有市场环境
+3. 技术故障可能导致非预期交易
+4. API限制或网络问题可能影响交易执行
+
+**使用本软件即表示您同意承担所有交易风险。作者不对任何直接、间接、偶然或结果性损失负责。**
+
+---
+
+## 建议
+
+1. 充分理解策略逻辑后再进行实盘交易
+2. 使用小资金进行测试
+3. 持续监控策略运行状态
+4. 定期回顾和评估策略表现
+5. 做好风险管理，不要投入超出承受能力的资金
