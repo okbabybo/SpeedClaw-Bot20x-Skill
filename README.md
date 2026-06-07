@@ -34,7 +34,15 @@
 0xFb4f3eFA1FeB256131FEEf2E2Ca4B2F2e9b22d6E
 ```
 
-付款后联系管理员获取授权码。
+### 自动发货
+
+付款后访问自动发货页面，提交 TX Hash 即可自动获取授权码：
+
+```bash
+cd payment
+python payment_server.py
+# 访问 http://你的服务器IP:5001
+```
 
 ### 获取授权码
 
