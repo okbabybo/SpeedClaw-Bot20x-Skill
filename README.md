@@ -20,17 +20,19 @@
 ### 使用流程
 
 ```
-1. 打开订阅页面：http://43.129.181.252
-2. 选择套餐 → 向显示的地址转账
-3. 粘贴转账TX哈希 → 点击验证
-4. 验证通过 → 直接下载文件 🎉
+1. 向套餐地址转账USDT
+2. 联系 Telegram @Okbabybo 或 邮箱 570511887@qq.com
+3. 提供转账截图 + 邮箱
+4. 收到完整策略文件 🎉
 ```
 
 ---
 
-## 下载页面
+## 📥 下载页面
 
-**http://43.129.181.252**
+**https://okbabybo.github.io/SpeedClaw-Bot20x-Skill/**
+
+（打开后查看套餐信息和使用教程）
 
 ---
 
@@ -46,9 +48,9 @@
 ## 快速开始
 
 ```bash
-# 解压下载的文件
-unzip speedClaw-Bot20x-Skill.zip
-cd speedClaw-Bot20x-Skill/bot
+# 克隆仓库
+git clone https://github.com/okbabybo/SpeedClaw-Bot20x-Skill.git
+cd SpeedClaw-Bot20x-Skill/bot
 
 # 配置
 cp config.py.template config.py
@@ -72,7 +74,7 @@ speedClaw-Bot20x-Skill/
 │   ├── bot_dashboard_api.py  # Web控制台后端
 │   └── dashboard.html        # Web控制台前端
 ├── docs/
-│   └── 策略手册.md           # 详细策略文档
+│   └── index.html            # 下载页面
 ├── skill/
 │   └── SKILL.md             # OpenClaw Skill
 └── README.md
