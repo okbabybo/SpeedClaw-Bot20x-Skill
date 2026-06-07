@@ -25,6 +25,44 @@ except ImportError:
     print("错误：请复制 config.py.template 为 config.py 并填入API密钥")
     sys.exit(1)
 
+# === 授权验证 ===
+LICENSE_FILE = os.path.join(os.path.dirname(__file__), ".license")
+LICENSE_DB = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".license_db.json")
+
+def check_license():
+    if not os.path.exists(LICENSE_FILE):
+        print("="*60)
+        print("⚠️ 缺少授权码！")
+        print("="*60)
+        print("请将授权码保存到 .license 文件")
+        print("echo '你的授权码' > .license")
+        print("请联系管理员获取授权码")
+        sys.exit(1)
+    with open(LICENSE_FILE) as f:
+        license_key = f.read().strip()
+    if not license_key:
+        print("错误：授权码为空"); sys.exit(1)
+    try:
+        with open(LICENSE_DB) as f:
+            db = json.load(f)
+        for lic in db.get("licenses", []):
+            if lic["key"] == license_key:
+                if not lic["active"]:
+                    print("❌ 授权码已被禁用"); sys.exit(1)
+                expires = datetime.fromisoformat(lic["expires"])
+                if datetime.now() > expires:
+                    print(f"❌ 授权码已过期（{lic['expires'][:10]}）"); sys.exit(1)
+                print(f"✅ 授权验证通过：{lic['plan']}，到期 {lic['expires'][:10]}")
+                return
+        print("❌ 授权码无效"); sys.exit(1)
+    except FileNotFoundError:
+        if license_key.startswith("SCB-") and len(license_key) == 21:
+            print("✅ 授权验证通过（演示模式）")
+        else:
+            print("❌ 授权码格式错误"); sys.exit(1)
+
+check_license()
+
 LOG_FILE = os.path.join(os.path.dirname(__file__), "bot_20x.log")
 
 # === 策略参数 ===

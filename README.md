@@ -7,171 +7,99 @@
 
 ---
 
-##核心特点
+## 订阅授权
 
-- **20x杠杆**：迷你仓运行，控制风险
-- **多周期EMA确认**：4H + 1H + 15M 三周期趋势共振
-- **StochRSI信号**：捕捉超买超卖极端点位
-- **趋势反转预警**：1H趋势反转时主动提醒
-- **API重试机制**：网络抖动时自动恢复
-- **趋势冲突过滤**：避免4H/1H矛盾时逆势开仓
+本项目采用**订阅授权模式**，需要授权码才能运行。
 
----
+### 套餐价格
 
-## 支持标的
+| 套餐 | 价格 | 说明 |
+|------|------|------|
+| 月度 | $9.9/月 | 30天有效 |
+| 季度 | $24.9/季 | 90天有效 |
+| 年度 | $79.9/年 | 365天有效 |
 
-| 标的 | 交易所 | 类型 |
-|------|--------|------|
-| BTCUSDT | Binance | USDT-M永续合约 |
-| ETHUSDT | Binance | USDT-M永续合约 |
+### 获取授权码
 
----
+1. 联系管理员获取授权码
+2. 将授权码保存到 `.license` 文件：
+   ```bash
+   cp license.template .license
+   echo '你的授权码' > .license
+   ```
 
-## 安装
+### 授权管理（管理员）
 
 ```bash
-# 克隆仓库
-git clone https://github.com/okbabbo/speedClaw-Bot20x-Skill.git
-cd speedClaw-Bot20x-Skill/bot
+# 生成授权码
+python license_manager.py generate user@example.com monthly
 
-# 安装依赖
+# 查看授权码
+python license_manager.py list
+
+# 撤销授权码
+python license_manager.py revoke SCB-XXXXXXXXXXXXXXXX
+```
+
+---
+
+## 快速开始
+
+### 1. 安装依赖
+
+```bash
 pip install requests
+```
 
-# 配置API密钥
+### 2.配置文件
+
+```bash
+cd bot
 cp config.py.template config.py
-# 编辑config.py，填入你的 Binance API Key 和 Secret
+# 编辑config.py，填入币安API密钥
 ```
 
----
-
-## 使用方法
-
-### 直接运行
+### 3. 配置授权码
 
 ```bash
+cp license.template .license
+echo 'YOUR_LICENSE_KEY' > .license
+```
+
+### 4. 启动
+
+```bash
+# 直接运行
 python bot_20x.py
-```
 
-### PM2守护模式
-
-```bash
+# PM2守护模式
 pm2 start bot_20x.py --name bot20x
-pm2 save
 pm2 logs bot20x
 ```
 
 ---
 
-## 策略参数
+## 策略核心
 
-### 核心参数
+### 信号系统
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| LEVER | 20 | 杠杆倍数 |
-| RISK_PCT | 10% | 单笔风险敞口 |
-| SL_ATR_MULT | 2% | 固定2%止损 |
-| TP1_PCT | 2% | TP1止盈：2%浮盈出半场 |
-| TP2_TRIGGER | 4% | TP2止盈：4%浮盈触发 |
-| TP2_BUFFER | 0.8% | TP2追踪回撤 |
+| 信号 | 条件 | 触发 |
+|------|------|------|
+| 做多 | RSI/StochRSI超卖 + 趋势向上 | 评分≥6.5 |
+| 做空 | RSI/StochRSI超买 + 趋势向下 | 评分≥6.5 |
+| 逆势 | 价格偏离EMA +极端RSI | 评分≥6.5 |
 
-### 风控参数
+### 风控
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| MAX_POS_PCT | 30% | 单标仓位上限 |
-| MAX_TOTAL_EXPOSURE | 150% | 总仓位上限（按保证金） |
-| DRAWDOWN_PROTECT | 15% | 回撤保护阈值 |
-| LOSS_STREAK_LIMIT | 3 |熔断连亏次数 |
+- 固定2%止损
+- 总仓位按保证金计算（≤150%余额）
+- 回撤≥15%自动减半仓
+- 连亏3次熔断15分钟
 
----
+### 止盈
 
-## 信号系统
-
-### 信号评分（≥6.5分触发）
-
-#### 做多信号（LONG）
-
-| 条件 | 评分 |
-|------|------|
-| RSI1H < 40 | +1 |
-| RSI4H < 50 | +1 |
-| RSI15M < 40 | +1 |
-| 趋势向上 | +1 |
-| StochRSI15M < 20 | +2 |
-| StochRSI1H < 20 | +1 |
-| RSI底背离 | +2 |
-
-#### 做空信号（SHORT）
-
-| 条件 | 评分 |
-|------|------|
-| RSI1H > 35 | +1 |
-| RSI4H ≥15 且 <60 | +1 |
-| 趋势向下 | +1 |
-| StochRSI15M > 80 | +2 |
-| StochRSI1H > 80 | +1 |
-| RSI顶背离 | +2 |
-
-### 逆势捕捉（独立评分）
-
-当价格在均线附近徘徊时，捕捉反弹/回调机会：
-
-| 方向 | 条件 |
-|------|------|
-| 逆势做多 | RSI1H<40 + 价格偏离EMA>0.5% + StochRSI<20 |
-| 逆势做空 | RSI1H>60 + 价格偏离EMA>0.5% + StochRSI>80 |
-
-### 趋势冲突过滤（v5.2新增）
-
-当4H和1H趋势方向矛盾时，自动跳过信号，避免逆势开仓。
-
----
-
-## 风控体系
-
-```
-止损：固定2%，不依赖ATR计算
-余额保护：
-  - 余额 < $20 → 风险降至5%
-  - 余额 > $80 → 风险降至8%
-仓位保护：
-  - 单标 ≤ 余额30%
-  - 总仓位（保证金）≤ 余额150%
-回撤保护：高点点回撤15% → 半仓
-熔断机制：连亏3次 → 暂停15分钟
-```
-
----
-
-## 止盈追踪
-
-```
-TP1：浮盈≥2% → 出半场 + 追踪止损启动
-TP2：浮盈≥4% + 回撤0.8% → 出清剩余
-```
-
-连赢2次TP1后，信号更灵敏（RSI门槛临时降5%）。
-
----
-
-## 趋势反转预警（v5.2新增）
-
-当1H趋势发生反转（上升↔下降）时：
-- 自动检测持仓方向与新趋势是否矛盾
-- 发送日志预警
-- 写入预警文件供监控使用
-- 冷却5分钟避免重复通知
-
----
-
-## API重试机制（v5.2新增）
-
-| 参数 | 值 |
-|------|------|
-| 重试次数 | 3次 |
-| 延迟策略 | 2秒 → 4秒 → 8秒（指数退避） |
-| 超时时间 | 15秒 |
+- TP1：浮盈≥2%出半场
+- TP2：浮盈≥4%回撤0.8%出清
 
 ---
 
@@ -180,28 +108,35 @@ TP2：浮盈≥4% + 回撤0.8% → 出清剩余
 ```
 speedClaw-Bot20x-Skill/
 ├── bot/
-│   ├── bot_20x.py # 主策略脚本
-│   ├── config.py.template # API配置模板
-│   └── README.md           # 本文件
+│   ├── bot_20x.py           # 主策略脚本（需授权）
+│   ├── config.py.template    # API配置模板
+│   ├── license.template      # 授权码模板
+│   └── license_manager.py # 授权管理工具
 ├── dashboard/
-│   ├── bot_dashboard_api.py # Web控制台后端
-│   └── dashboard.html        # Web控制台前端
+│   ├── bot_dashboard_api.py   # Web控制台后端
+│   └── dashboard.html         # Web控制台前端
 ├── docs/
-│   └── 策略手册.md # 详细策略文档
-└── skill/
-    └── SKILL.md           # OpenClaw Skill定义
+│   └── 策略手册.md           # 详细策略文档
+├── skill/
+│   └── SKILL.md              # OpenClaw Skill
+├── LICENSE
+├── README.md
+├── requirements.txt
+└── setup.sh
 ```
 
 ---
 
-## 策略评分
+## Web控制台
 
-| 维度 | 评分 |
-|------|------|
-| 信号质量 | 8/10 |
-| 风控完整性 | 9/10 |
-| 实盘可行性 | 8/10 |
-| **总分** | **87/100** |
+访问 `dashboard.html` 或启动API服务：
+
+```bash
+python dashboard/bot_dashboard_api.py
+# 访问 http://localhost:5000
+```
+
+功能：查看持仓、信号评分、手动平仓、重启Bot
 
 ---
 
@@ -209,7 +144,7 @@ speedClaw-Bot20x-Skill/
 
 | 版本 | 日期 | 改动 |
 |------|------|------|
-| v5.2 | 2026-06-07 | API重试机制 + 趋势冲突过滤 + 趋势反转预警 |
+| v5.2 | 2026-06-07 | 新增订阅授权系统 + 趋势反转预警 |
 | v5.1 | 2026-06-07 | 总仓位按保证金计算 |
 | v5.0 | 2026-06-06 | ADX + ATR + 连赢加速 + 逆势模式 |
 
@@ -230,4 +165,4 @@ speedClaw-Bot20x-Skill/
 
 ## License
 
-MIT License - 详见 LICENSE 文件
+MIT License
