@@ -14,7 +14,7 @@ app = Flask(__name__)
 
 # ========== 配置 ==========
 BSC_RPC = "https://bsc-dataseed.binance.org/"
-PORT = 5000
+PORT = 80
 
 # 三个套餐的收款地址
 TIERS = {
