@@ -412,4 +412,4 @@ if __name__ == '__main__':
     for tier, info in SUBSCRIPTION_TIERS.items():
         print(f"  {info['name']} (${info['price']}): {info['address']}")
     print()
-    app.run(host='0.0.0.0', port=5001, debug=False)
+    app.run(host='0.0.0.0', port=5000, debug=False)
