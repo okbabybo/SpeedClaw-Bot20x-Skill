@@ -51,19 +51,17 @@
 
 ---
 
-## 💰 套餐价格
+## 💰 年度订阅
 
 | 套餐 | 价格 | 收款地址（USDT BEP20） |
 |------|------|----------------------|
-| 月度 | $9.9 | `0xFb4f3eFA1FeB256131FEEf2E2Ca4B2F2e9b22d6E` |
-| 季度 | $24.9 | `0x6CDD7d0e7865f6DaDB9178dd114890ABD5d5323b` |
-| 年度 | $79.9 | `0x352f5Cb1CA167500D27741676ab9efA4B07D3D30` |
+| 年度订阅 | $79.9 | `0x352f5Cb1CA167500D27741676ab9efA4B07D3D30` |
 
 ### 使用流程
 
 ```
 1. 向套餐地址转账USDT
-2. 联系 Telegram @Okbabybo 或 邮箱 570511887@qq.com
+2. 联系 Telegram @SpeedClawBot 或 邮箱 speedclawx@gmail.com
 3. 提供转账截图 + 邮箱
 4. 收到完整策略文件 🎉
 ```
@@ -82,8 +80,8 @@
 
 | 方式 | 信息 |
 |------|------|
-| Telegram | @Okbabybo |
-| Email | 570511887@qq.com |
+| Telegram | @SpeedClawBot |
+| Email | speedclawx@gmail.com |
 
 ---
 
