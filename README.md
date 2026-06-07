@@ -61,7 +61,7 @@
 
 ```
 1. 向套餐地址转账USDT
-2. 联系 Telegram @SpeedClawBot 或 邮箱 speedclawx@gmail.com
+2. 联系 Telegram @Okbabybo 或 邮箱 speedclawx@gmail.com
 3. 提供转账截图 + 邮箱
 4. 收到完整策略文件 🎉
 ```
@@ -80,7 +80,7 @@
 
 | 方式 | 信息 |
 |------|------|
-| Telegram | @SpeedClawBot |
+| Telegram | @Okbabybo |
 | Email | speedclawx@gmail.com |
 
 ---
