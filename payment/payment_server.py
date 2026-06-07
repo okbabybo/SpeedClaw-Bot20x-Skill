@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """
-speedClaw Bot20x - 自动订阅系统
-用户扫码付款 → 系统自动监控 → 自动显示授权码
+speedClaw Bot20x - 付款验证+文件下载系统
+用户付款后输入TX哈希 → 验证通过 → 显示下载链接
 """
 
 from flask import Flask, render_template_string, jsonify, request
 import json
 import time
-import threading
 from web3 import Web3
 
 app = Flask(__name__)
@@ -23,160 +22,97 @@ TIERS = {
         "price": 9.9,
         "days": 30,
         "address": "0xFb4f3eFA1FeB256131FEEf2E2Ca4B2F2e9b22d6E",
-        "label": "$9.9 / 月"
+        "label": "$9.9 / 月",
+        "files": [
+            {"name": "speedClaw-Bot20x-Skill.zip", "desc": "完整策略文件"},
+        ]
     },
     "quarterly": {
-        "name": "季度订阅",
+        "name": "季度订阅", 
         "price": 24.9,
         "days": 90,
         "address": "0x6CDD7d0e7865f6DaDB9178dd114890ABD5d5323b",
-        "label": "$24.9 / 季度"
+        "label": "$24.9 / 季度",
+        "files": [
+            {"name": "speedClaw-Bot20x-Skill.zip", "desc": "完整策略文件"},
+        ]
     },
     "yearly": {
         "name": "年度订阅",
         "price": 79.9,
         "days": 365,
         "address": "0x352f5Cb1CA167500D27741676ab9efA4B07D3D30",
-        "label": "$79.9 / 年"
+        "label": "$79.9 / 年",
+        "files": [
+            {"name": "speedClaw-Bot20x-Skill.zip", "desc": "完整策略文件（含VIP专属参数）"},
+        ]
     }
 }
 
-LICENSE_DB_FILE = "/root/.openclaw/workspace/speedClaw-Bot20x-Skill/.license_db.json"
-pending_payments = {}  # tier -> {address, amount, start_time}
-detected_payments = {}  # tx_hash -> license_key
+PAID_TXS_FILE = "/root/.openclaw/workspace/speedClaw-Bot20x-Skill/.paid_txs.json"
+GITHUB_REPO = "https://github.com/okbabybo/SpeedClaw-Bot20x-Skill/archive/refs/heads/main.zip"
 
-def load_license_db():
+def load_paid_txs():
     try:
-        with open(LICENSE_DB_FILE, 'r') as f:
+        with open(PAID_TXS_FILE, 'r') as f:
             return json.load(f)
     except:
         return {}
 
-def save_license_db(db):
-    with open(LICENSE_DB_FILE, 'w') as f:
-        json.dump(db, f, indent=2)
+def save_paid_txs(data):
+    with open(PAID_TXS_FILE, 'w') as f:
+        json.dump(data, f, indent=2)
 
-def generate_license_key():
-    import secrets
-    return "SCB-" + secrets.token_hex(4).upper()
-
-def check_address_transactions(address, min_amount=1):
-    """检查地址是否有新转账入账"""
+def verify_tx_on_bsc(tx_hash, expected_address, min_amount):
+    """验证BSC链上TX"""
     try:
         w3 = Web3(Web3.HTTPProvider(BSC_RPC))
-        address = Web3.to_checksum_address(address)
         
-        # 获取最近20个交易
-        current_balance = w3.eth.get_balance(address)
+        # 获取交易收据
+        receipt = w3.eth.get_transaction_receipt(tx_hash)
+        if not receipt:
+            return None
         
-        # 使用eth_getLogs查询最近12小时内的交易
-        from_block = w3.eth.block_number - 5000  # 大约2小时内
+        # 检查交易状态
+        if receipt['status'] != 1:
+            return None
         
-        logs = w3.eth.get_logs({
-            'fromBlock': max(0, from_block),
-            'toBlock': 'latest',
-            'address': address,
-            'topics': [
-                '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',  # Transfer event
-            ]
-        })
-        
-        txs = []
-        for log in logs:
-            try:
-                # 解析 Transfer event (Transfer(address from, address to, uint256 value))
-                # topics[0] = Transfer event hash
-                # topics[1] = from address
-                # topics[2] = to address
-                # topics[3] = value (amount)
+        # 解析logs寻找USDT Transfer事件
+        for log in receipt['logs']:
+            # 跳过新币安的USDTSmartChain事件（不是我们要的）
+            if len(log['topics']) < 3:
+                continue
                 
-                if len(log.topics) >= 3:
-                    from_addr = "0x" + log.topics[1].hex()[-40:]
-                    to_addr = "0x" + log.topics[2].hex()[-40:]
-                    
-                    # 只关心转入当前地址的交易
-                    if to_addr.lower() == address.lower():
-                        amount = int(log.data.hex(), 16) / 1e18 # USDT decimals
-                        tx_hash = log.transactionHash.hex()
-                        
-                        txs.append({
-                            'hash': tx_hash,
-                            'from': from_addr,
-                            'amount': amount,
-                            'block': log.blockNumber,
-                            'timestamp': log.blockNumber * 3  # BSC block time approx
-                        })
-            except Exception as e:
+            try:
+                # Transfer(address from, address to, uint256 value)
+                from_addr = "0x" + log['topics'][1].hex()[-40:]
+                to_addr = "0x" + log['topics'][2].hex()[-40:]
+                
+                # 检查是否转入目标地址
+                if to_addr.lower() == expected_address.lower():
+                    # USDT代币
+                    if log['address'].lower() in ['0x55d398326f99059ff775485246999027b3197955', '0xe9e7cea694dedb6a0c89c92e2f0a1b2b5e0c3d4', '0x7ef95a0eee953a1a23d4b413aec8e3f2e3ee0a3c']:
+                        # USDT代币转账
+                        amount = int(log['data'].hex() or '0x0', 16) / 1e18
+                        if amount >= min_amount:
+                            return {'from': from_addr, 'amount': amount}
+            except:
                 continue
         
-        return txs
-    except Exception as e:
-        print(f"检查交易失败: {e}")
-        return []
-
-def monitor_address(tier_key):
-    """后台监控线程"""
-    tier = TIERS[tier_key]
-    address = tier['address']
-    min_amount = tier['price'] * 0.9  # 允许10%误差
-    
-    known_txs = set()
-    check_interval = 10  # 每10秒检查一次
-    
-    while True:
-        try:
-            txs = check_address_transactions(address)
-            
-            for tx in txs:
-                tx_hash = tx['hash']
-                amount = tx['amount']
-                
-                if tx_hash not in known_txs and amount >= min_amount:
-                    known_txs.add(tx_hash)
-                    
-                    # 发现有效转账！生成授权码
-                    wallet_address = tx.get('from', 'unknown')
-                    
-                    # 检查是否已生成过这个tx的授权码
-                    db = load_license_db()
-                    if tx_hash not in db.get('transactions', {}):
-                        license_key = generate_license_key()
-                        expiry = int(time.time()) + tier['days'] * 86400
-                        
-                        #记录到数据库
-                        db.setdefault('transactions', {})[tx_hash] = {
-                            'license_key': license_key,
-                            'tier': tier_key,
-                            'wallet': wallet_address,
-                            'amount': amount,
-                            'created': int(time.time()),
-                            'expiry': expiry,
-                            'used': False
-                        }
-                        save_license_db(db)
-                        
-                        print(f"✅ 检测到付款！TX: {tx_hash[:10]}...金额: ${amount} 生成授权码: {license_key}")
-            
-        except Exception as e:
-            print(f"监控异常: {e}")
+        return None
         
-        time.sleep(check_interval)
+    except Exception as e:
+        print(f"验证TX失败: {e}")
+        return None
 
-def start_monitoring():
-    """启动后台监控"""
-    for tier_key in TIERS.keys():
-        t = threading.Thread(target=monitor_address, args=(tier_key,), daemon=True)
-        t.start()
-        print(f"启动监控线程: {tier_key}")
-
-# ========== 网页路由 ==========
+# ========== 网页 ==========
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>speedClaw Bot20x - 自动订阅</title>
+<title>speedClaw Bot20x - 订阅下载</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -207,20 +143,9 @@ body {
   cursor: pointer;
   transition: all 0.3s;
 }
-.tier:hover {
-  border-color: #00d4aa;
-  transform: translateY(-2px);
-}
-.tier.selected {
-  border-color: #00d4aa;
-  background: rgba(0,212,170,0.1);
-}
-.tier-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-}
+.tier:hover { border-color: #00d4aa; transform: translateY(-2px); }
+.tier.selected { border-color: #00d4aa; background: rgba(0,212,170,0.1); }
+.tier-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .tier-name { font-size: 18px; font-weight: 600; }
 .tier-price { font-size: 24px; color: #00d4aa; font-weight: 700; }
 .tier-address {
@@ -230,30 +155,21 @@ body {
   font-size: 12px;
   color: #9ca3af;
   word-break: break-all;
-  margin-bottom: 12px;
+  margin: 12px 0;
 }
-.tier-days { color: #6b7280; font-size: 13px; }
 
-.qr-section {
+.pay-section {
   background: rgba(255,255,255,0.05);
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 12px;
   padding: 24px;
   margin: 20px 0;
   display: none;
-  text-align: center;
 }
-.qr-section.active { display: block; }
-.qr-title { font-size: 18px; margin-bottom: 16px; color: #00d4aa; }
-.qr-code {
-  background: white;
-  padding: 16px;
-  border-radius: 12px;
-  display: inline-block;
-  margin: 16px 0;
-}
-.qr-code img { width: 200px; height: 200px; display: block; }
-.copy-addr {
+.pay-section.active { display: block; }
+.pay-title { font-size: 18px; margin-bottom: 16px; color: #00d4aa; }
+
+.copy-btn {
   background: #00d4aa;
   color: #0a0e17;
   border: none;
@@ -264,32 +180,28 @@ body {
   cursor: pointer;
   margin-top: 12px;
 }
-.copy-addr:hover { background: #00e4bb; }
+.copy-btn:hover { background: #00e4bb; }
 
-.wallet-section {
+.verify-section {
   margin: 20px 0;
-  display: none;
 }
-.wallet-section.active { display: block; }
-.wallet-section label {
+.verify-section label {
   display: block;
   margin-bottom: 8px;
   color: #9ca3af;
   font-size: 14px;
 }
-.wallet-section input {
+.verify-section input {
   width: 100%;
   padding: 14px;
   border: 1px solid rgba(255,255,255,0.2);
   border-radius: 8px;
   background: rgba(255,255,255,0.05);
   color: #e0e6ed;
-  font-size: 16px;
+  font-size: 14px;
+  font-family: monospace;
 }
-.wallet-section input:focus {
-  outline: none;
-  border-color: #00d4aa;
-}
+.verify-section input:focus { outline: none; border-color: #00d4aa; }
 
 .verify-btn {
   width: 100%;
@@ -317,18 +229,19 @@ body {
 }
 .result.active { display: block; }
 .result-title { color: #00d4aa; font-size: 18px; margin-bottom: 16px; }
-.license-key {
+.download-links { margin: 16px 0; }
+.download-link {
+  display: block;
   background: rgba(0,0,0,0.3);
-  padding: 16px24px;
+  padding: 16px;
   border-radius: 8px;
-  font-size: 20px;
-  font-weight: 700;
+  margin: 8px 0;
   color: #00d4aa;
-  letter-spacing: 2px;
-  margin: 16px 0;
-  word-break: break-all;
+  text-decoration: none;
+  font-size: 14px;
 }
-.result-note { color: #9ca3af; font-size: 13px; margin-top: 12px; }
+.download-link:hover { background: rgba(0,212,170,0.2); }
+.download-link span { display: block; color: #9ca3af; font-size: 12px; margin-top: 4px; }
 
 .waiting {
   text-align: center;
@@ -348,6 +261,18 @@ body {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+.error {
+  background: rgba(239,68,68,0.15);
+  border: 1px solid #ef4444;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 12px 0;
+  color: #ef4444;
+  font-size: 14px;
+  display: none;
+}
+.error.active { display: block; }
+
 .footer {
   text-align: center;
   margin-top: 40px;
@@ -360,50 +285,47 @@ body {
 <div class="container">
   <div class="header">
     <h1>🦞 speedClaw Bot20x</h1>
-    <p>自动订阅系统 - 扫码支付即可使用</p>
+    <p>付款后立即下载完整策略文件</p>
   </div>
 
   <div class="tiers">
     {% for tier_key, tier in tiers.items() %}
-    <div class="tier" data-tier="{{ tier_key }}">
+    <div class="tier" data-tier="{{ tier_key }}" onclick="selectTier('{{ tier_key }}')">
       <div class="tier-header">
         <span class="tier-name">{{ tier.name }}</span>
         <span class="tier-price">{{ tier.label }}</span>
       </div>
+      <div style="color:#6b7280;font-size:13px;">{{ tier.days }}天有效期</div>
       <div class="tier-address">{{ tier.address }}</div>
-      <div class="tier-days">有效期：{{ tier.days }} 天</div>
     </div>
     {% endfor %}
   </div>
 
-  <div class="qr-section" id="qrSection">
-    <div class="qr-title">📱 扫码支付</div>
-    <div class="qr-code">
-      <img id="qrImage" src="" alt="QR Code">
+  <div class="pay-section" id="paySection">
+    <div class="pay-title">📋 向以下地址转账 {{ selected_price }}</div>
+    <div style="background:rgba(0,0,0,0.3);padding:16px;border-radius:8px;word-break:break-all;font-size:14px;" id="payAddress"></div>
+    <button class="copy-btn" onclick="copyAddress()">📋 复制地址</button>
+    
+    <div class="verify-section" style="margin-top:24px;">
+      <label>粘贴转账交易的 TX 哈希：</label>
+      <input type="text" id="txHash" placeholder="0x...">
+      <div class="error" id="errorMsg"></div>
+      <button class="verify-btn" id="verifyBtn" onclick="verifyPayment()">🔍 验证支付 & 下载文件</button>
     </div>
-    <div style="color:#9ca3af;font-size:14px;margin:12px 0;">
-     收款地址：<span id="payAddr" style="font-size:12px;"></span>
-    </div>
-    <button class="copy-addr" onclick="copyAddress()">📋 复制地址</button>
-  </div>
-
-  <div class="wallet-section" id="walletSection">
-    <label>请输入您的钱包地址（用于关联授权码）：</label>
-    <input type="text" id="walletInput" placeholder="0x...">
-    <button class="verify-btn" id="verifyBtn" onclick="checkPayment()">🔍 检查支付 & 获取授权码</button>
   </div>
 
   <div class="waiting" id="waiting">
     <div class="spinner"></div>
-    <div>检测交易中，请稍候...</div>
+    <div>验证中，请稍候...</div>
   </div>
 
   <div class="result" id="result">
     <div class="result-title">🎉 支付成功！</div>
-    <div class="license-key" id="licenseKey"></div>
-    <div class="result-note">
-      授权码有效期已记录<br>
-      请妥善保存授权码
+    <div style="color:#9ca3af;font-size:14px;margin-bottom:16px;">以下是您的下载链接</div>
+    <div class="download-links" id="downloadLinks"></div>
+    <div style="color:#6b7280;font-size:12px;margin-top:16px;">
+      * 下载后请查看 README.md 开始使用<br>
+      * 如有问题联系 Telegram @Okbabybo
     </div>
   </div>
 </div>
@@ -411,50 +333,42 @@ body {
 <script>
 const tiers = {{ tiers_json | safe }};
 let selectedTier = null;
+let selectedPrice = 0;
 
-document.querySelectorAll('.tier').forEach(el => {
-  el.addEventListener('click', () => {
-    document.querySelectorAll('.tier').forEach(t => t.classList.remove('selected'));
-    el.classList.add('selected');
-    selectedTier = el.dataset.tier;
-    
-    const tier = tiers[selectedTier];
-    document.getElementById('qrSection').classList.add('active');
-    document.getElementById('walletSection').classList.add('active');
-    document.getElementById('payAddr').textContent = tier.address;
-    
-    // 生成QR码
-    document.getElementById('qrImage').src = 
-      'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + 
-      encodeURIComponent(`tron:transfer?address=${tier.address}&amount=${tier.price}`);
-    
-    document.getElementById('result').classList.remove('active');
-  });
-});
-
-function copyAddress() {
-  if (selectedTier) {
-    navigator.clipboard.writeText(tiers[selectedTier].address);
-    alert('地址已复制！');
-  }
+function selectTier(key) {
+  document.querySelectorAll('.tier').forEach(t => t.classList.remove('selected'));
+  document.querySelector(`[data-tier="${key}"]`).classList.add('selected');
+  selectedTier = key;
+  selectedPrice = tiers[key].price;
+  
+  document.getElementById('payAddress').textContent = tiers[key].address;
+  document.getElementById('paySection').classList.add('active');
+  document.getElementById('result').classList.remove('active');
+  document.getElementById('errorMsg').classList.remove('active');
 }
 
-function checkPayment() {
-  const wallet = document.getElementById('walletInput').value.trim();
-  if (!wallet) {
-    alert('请输入钱包地址');
+function copyAddress() {
+  navigator.clipboard.writeText(document.getElementById('payAddress').textContent);
+  alert('地址已复制！');
+}
+
+function verifyPayment() {
+  const txHash = document.getElementById('txHash').value.trim();
+  if (!txHash || !txHash.startsWith('0x')) {
+    showError('请输入有效的TX哈希（以0x开头）');
     return;
   }
   
   document.getElementById('waiting').classList.add('active');
   document.getElementById('verifyBtn').disabled = true;
+  document.getElementById('errorMsg').classList.remove('active');
   
-  fetch('/api/check_payment', {
+  fetch('/api/verify', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
       tier: selectedTier,
-      wallet: wallet
+      tx_hash: txHash
     })
   })
   .then(r => r.json())
@@ -463,17 +377,30 @@ function checkPayment() {
     document.getElementById('verifyBtn').disabled = false;
     
     if (data.success) {
-      document.getElementById('licenseKey').textContent = data.license_key;
+      // 显示下载链接
+      const linksHtml = data.files.map(f => 
+        `<a href="${f.url}" class="download-link" target="_blank">
+          📥 ${f.name}
+          <span>${f.desc}</span>
+        </a>`
+      ).join('');
+      document.getElementById('downloadLinks').innerHTML = linksHtml;
       document.getElementById('result').classList.add('active');
+      document.getElementById('paySection').classList.remove('active');
     } else {
-      alert(data.message || '未检测到支付，请稍候再试');
+      showError(data.message || '验证失败，请检查TX哈希是否正确');
     }
   })
   .catch(e => {
     document.getElementById('waiting').classList.remove('active');
     document.getElementById('verifyBtn').disabled = false;
-    alert('检查失败: ' + e.message);
+    showError('验证请求失败: ' + e.message);
   });
+}
+
+function showError(msg) {
+  document.getElementById('errorMsg').textContent = msg;
+  document.getElementById('errorMsg').classList.add('active');
 }
 </script>
 </body>
@@ -485,67 +412,59 @@ def index():
     tiers_json = json.dumps(TIERS)
     return render_template_string(HTML_TEMPLATE, tiers=TIERS, tiers_json=tiers_json)
 
-@app.route('/api/check_payment', methods=['POST'])
-def api_check_payment():
+@app.route('/api/verify', methods=['POST'])
+def api_verify():
     data = request.json
     tier_key = data.get('tier')
-    wallet = data.get('wallet', '').lower()
+    tx_hash = data.get('tx_hash', '').strip()
     
     if not tier_key or tier_key not in TIERS:
         return jsonify({'success': False, 'message': '无效的套餐'})
     
+    if not tx_hash or not tx_hash.startswith('0x'):
+        return jsonify({'success': False, 'message': '无效的TX哈希'})
+    
     tier = TIERS[tier_key]
-    min_amount = tier['price'] * 0.9
+    min_amount = tier['price'] * 0.9  # 10%容差
     
-    # 检查该地址的转账
-    txs = check_address_transactions(tier['address'])
+    # 检查是否已验证过
+    paid_txs = load_paid_txs()
+    if tx_hash in paid_txs:
+        # 已验证过，直接返回下载链接
+        return jsonify({
+            'success': True,
+            'files': tier['files'],
+            'message': '验证通过（已记录）'
+        })
     
-    for tx in txs:
-        if tx['amount'] >= min_amount:
-            tx_hash = tx['hash']
-            
-            # 检查数据库
-            db = load_license_db()
-            if tx_hash in db.get('transactions', {}):
-                record = db['transactions'][tx_hash]
-                return jsonify({
-                    'success': True,
-                    'license_key': record['license_key'],
-                    'message': '授权码获取成功'
-                })
-            
-            # 没找到？可能监控还没更新，手动检查
-            # 允许用户主动查询
-            if wallet and tx.get('from', '').lower() == wallet:
-                # 生成授权码
-                license_key = generate_license_key()
-                expiry = int(time.time()) + tier['days'] * 86400
-                
-                db.setdefault('transactions', {})[tx_hash] = {
-                    'license_key': license_key,
-                    'tier': tier_key,
-                    'wallet': wallet,
-                    'amount': tx['amount'],
-                    'created': int(time.time()),
-                    'expiry': expiry,
-                    'used': False
-                }
-                save_license_db(db)
-                
-                return jsonify({
-                    'success': True,
-                    'license_key': license_key,
-                    'message': '授权码获取成功'
-                })
+    # 验证TX
+    result = verify_tx_on_bsc(tx_hash, tier['address'], min_amount)
     
-    return jsonify({'success': False, 'message': '未检测到支付，请确保已转账且金额正确'})
+    if result:
+        # 记录已验证的TX
+        paid_txs[tx_hash] = {
+            'tier': tier_key,
+            'amount': result['amount'],
+            'time': int(time.time())
+        }
+        save_paid_txs(paid_txs)
+        
+        return jsonify({
+            'success': True,
+            'files': tier['files'],
+            'message': '验证成功'
+        })
+    else:
+        return jsonify({
+            'success': False,
+            'message': f'未检测到向 {tier["address"][:10]}... 转账 {tier["price"]} USDT 的交易'
+        })
 
 @app.route('/api/status')
 def api_status():
     return jsonify({'status': 'ok', 'tiers': list(TIERS.keys())})
 
 if __name__ == '__main__':
-    print("🚀 启动自动订阅系统...")
-    start_monitoring()
+    print("🚀 启动付款验证系统...")
     print(f"📡 服务端口: {PORT}")
     app.run(host='0.0.0.0', port=PORT, debug=False)
