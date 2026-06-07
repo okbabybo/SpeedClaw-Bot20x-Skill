@@ -1,4 +1,4 @@
-# speedClaw Bot20x
+# SpeedClaw Bot20×
 
 > **BTC + ETH 永续合约量化交易机器人**
 >
