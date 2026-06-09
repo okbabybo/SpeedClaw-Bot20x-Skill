@@ -31,6 +31,7 @@ API_TIMEOUT = 15             # API超时时间
 
 loss_streak_count = 0
 last_loss_time = 0
+last_trade_time = 0
 
 LEVER = 20
 RISK_PCT = 0.10
@@ -60,6 +61,7 @@ RISK_RICH_PCT = 0.08   # 富裕区风控：余额>80时风险降到8%
 TREND_STATE_FILE = "/root/.openclaw/workspace/.trend_state"
 TREND_WARN_COOLDOWN = 300  # 冷却5分钟
 WARN_FILE = "/root/.openclaw/workspace/.trend_warn"  # 待发送预警文件
+MIN_TRADE_INTERVAL = 30  # 最小下单间隔（秒），防止过度交易
 
 def load_trend_state():
     try:
@@ -179,7 +181,12 @@ def api_retry_call(func, *args, **kwargs):
     delay = API_RETRY_DELAY
     for attempt in range(API_RETRY_MAX):
         try:
-            return func(*args, **kwargs)
+            resp = func(*args, **kwargs)
+            data = resp.json()
+            # 防御：确保返回的是dict而非字符串/列表
+            if not isinstance(data, dict):
+                raise ValueError(f"API返回类型错误: {type(data).__name__}")
+            return data
         except Exception as e:
             if attempt < API_RETRY_MAX - 1:
                 time.sleep(delay)
@@ -193,14 +200,14 @@ def bn_get(endpoint, params=""):
     p = f"{params}&timestamp={ts}" if params else f"timestamp={ts}"
     sig = hmac.new(SECRET.encode(), p.encode(), hashlib.sha256).hexdigest()
     return api_retry_call(requests.get, f"https://fapi.binance.com{endpoint}?{p}&signature={sig}",
-                       headers={"X-MBX-APIKEY": API_KEY}, timeout=API_TIMEOUT).json()
+                       headers={"X-MBX-APIKEY": API_KEY}, timeout=API_TIMEOUT)
 
 def bn_post(endpoint, params):
     ts = str(int(time.time()*1000))
     p = f"{params}&timestamp={ts}"
     sig = hmac.new(SECRET.encode(), p.encode(), hashlib.sha256).hexdigest()
     return api_retry_call(requests.post, f"https://fapi.binance.com{endpoint}?{p}&signature={sig}",
-                        headers={"X-MBX-APIKEY": API_KEY}, timeout=API_TIMEOUT).json()
+                        headers={"X-MBX-APIKEY": API_KEY}, timeout=API_TIMEOUT)
 
 def get_balance():
     try: return float(bn_get("/fapi/v2/account").get('availableBalance', 0))
@@ -208,18 +215,41 @@ def get_balance():
 
 def get_all_positions(symbol):
     positions = {}
-    for p in bn_get("/fapi/v2/positionRisk", f"symbol={symbol}"):
-        amt = float(p.get('positionAmt', 0))
-        if amt != 0:
-            side = p['positionSide']
-            positions[side] = {"dir": "LONG" if amt > 0 else "SHORT",
-                                "qty": abs(amt), "entry": abs(float(p['entryPrice']))}
+    try:
+        data = bn_get("/fapi/v2/positionRisk", f"symbol={symbol}")
+        if not isinstance(data, list):
+            log(f"get_all_positions异常: 返回{type(data).__name__}")
+            return positions
+        for p in data:
+            if not isinstance(p, dict): continue
+            amt = float(p.get('positionAmt', 0))
+            if amt != 0:
+                side = p['positionSide']
+                positions[side] = {"dir": "LONG" if amt > 0 else "SHORT",
+                                    "qty": abs(amt), "entry": abs(float(p['entryPrice']))}
+    except Exception as e:
+        log(f"get_all_positions错误: {e}")
     return positions
 
 def do_order(symbol, side, posSide, qty):
-    params = f"symbol={symbol}&side={side}&positionSide={posSide}&type=MARKET&quantity={qty:.3f}"
-    resp = bn_post("/fapi/v1/order", params)
-    return resp.get("orderId") is not None
+    # 下单前先记录日志（防止crash后无法追溯）
+    log(f"[下单] {symbol} {side} {posSide} qty={qty:.3f} -> 发送中...")
+    try:
+        params = f"symbol={symbol}&side={side}&positionSide={posSide}&type=MARKET&quantity={qty:.3f}"
+        resp = bn_post("/fapi/v1/order", params)
+        if not isinstance(resp, dict):
+            log(f"[下单失败] {symbol} {side} {posSide} resp类型错误: {type(resp).__name__}")
+            return False
+        order_id = resp.get("orderId")
+        if order_id:
+            log(f"[下单成功] {symbol} {side} {posSide} qty={qty:.3f} orderId={order_id}")
+            return True
+        else:
+            log(f"[下单失败] {symbol} {side} {posSide} qty={qty:.3f} resp={resp}")
+            return False
+    except Exception as e:
+        log(f"[下单异常] {symbol} {side} {posSide} qty={qty:.3f} error={e}")
+        return False
 
 def get_klines(symbol, interval, limit=100):
     def _fetch():
@@ -558,7 +588,7 @@ def main():
                 log(f"⚠️ 总仓位超限：${total_exposure:.2f} > ${bal:.2f}×{MAX_TOTAL_EXPOSURE}，暂停新开仓")
                 time.sleep(15); continue
 
-            global loss_streak_count, last_loss_time
+            global loss_streak_count, last_loss_time, last_trade_time
             if loss_streak_count >= LOSS_STREAK_LIMIT and (now - last_loss_time) < LOSS_STREAK_PAUSE:
                 log(f"熔断中：连续{loss_streak_count}亏，剩余{int(LOSS_STREAK_PAUSE-(now-last_loss_time))/60:.0f}分钟")
                 time.sleep(15); continue
@@ -657,7 +687,10 @@ def main():
                         sig_ok = (sig == direction) or (reverse_target is not None)
                         reasons = info['reasons'] if sig == direction else [f"反向:{reverse_target}", f"R4={info['r4']:.0f},R1={info['r1']:.0f}"]
                         
-                        if sig_ok and reasons and bal > MIN_BAL and (now - closed_time) > OPEN_COOLDOWN:
+                        # 防过度交易：检查最近一次下单时间
+                        if last_trade_time and (now - last_trade_time) < MIN_TRADE_INTERVAL:
+                            log(f"{symbol} {direction} 防过度交易：距上次下单{MIN_TRADE_INTERVAL}秒内，跳过")
+                        elif sig_ok and reasons and bal > MIN_BAL and (now - closed_time) > OPEN_COOLDOWN:
                             actual_dir = reverse_target if reverse_target else direction
                             qty = calc_qty(bal, info['atr'], info['cur'])
                             log(f"{symbol} -> {actual_dir} {reasons} @{info['cur']:.0f} qty:{qty}")
@@ -676,6 +709,7 @@ def main():
                                     "last": None, "win_streak": 0
                                 })
                                 with open(actual_sf_file, "w") as f: json.dump(s, f)
+                                last_trade_time = now
                                 time.sleep(3)
                         else:
                             sig_str = sig if sig else "无信号"
