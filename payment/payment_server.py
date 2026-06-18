@@ -130,7 +130,7 @@ function copyWallet() {
 
 @app.route("/")
 def index():
-    return redirect("https://github.com/okbabybo/SpeedClaw-Bot20x-Skill")
+    return redirect("https://okbabybo.github.io/SpeedClaw-Bot20x-Skill/")
 
 @app.route("/api/status")
 def api_status():
