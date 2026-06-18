@@ -19,9 +19,7 @@ from datetime import datetime, timedelta
 LICENSE_DB = "/root/.openclaw/workspace/speedClaw-Bot20x-Skill/.license_db.json"
 
 PLANS = {
-    "monthly": {"days": 30, "price": "$9.9/月"},
-    "quarterly": {"days": 90, "price": "$24.9/季"},
-    "yearly": {"days": 365, "price": "$79.9/年"},
+    "yearly": {"days": 365, "price": "$399.9/年"},
 }
 
 def load_db():
