@@ -7,10 +7,41 @@ v5.2优化：API重试机制 + 趋势冲突过滤 + 趋势反转预警
 """
 import requests, time, json, hmac, hashlib
 from datetime import datetime
+from pathlib import Path
 
 API_KEY = "QccKkNLbtV61rJpOms4h2E0RWoZMfMhG2ar3v9tueF5kbQ6KkN4sUf5CFLLkMhzx"
 SECRET  = "Q549z4g3QlOnVs0PDSCzW6Xy2nVt9763DMqWo64MLLDoUeV8MigrUGUQn2nZTDuU"
 LOG_FILE = "/root/.openclaw/workspace/bot_20x.log"
+LICENSE_FILE = "/root/.openclaw/workspace/speedClaw-Bot20x-Skill/.license_db.json"
+
+# === 授权验证 ===
+def verify_license():
+    """启动时验证授权码，无码或无效则拒绝启动"""
+    try:
+        lic_file = Path(LICENSE_FILE)
+        if not lic_file.exists():
+            log("❌ 授权文件不存在，请联系 @Okbabybo 获取授权码")
+            return False
+        with open(lic_file) as f:
+            db = json.load(f)
+        lic_db = db.get("licenses", [])
+        if not lic_db:
+            log("❌ 无授权码记录，请联系 @Okbabybo 获取授权码")
+            return False
+        now = datetime.now()
+        for lic in lic_db:
+            if not lic.get("active"):
+                continue
+            expires = datetime.fromisoformat(lic["expires"])
+            if now <= expires:
+                days_left = (expires - now).days
+                log(f"✅ 授权有效 | 到期：{lic['expires'][:10]}（还剩{days_left}天） | {lic.get('email','')}")
+                return True
+        log("❌ 授权码已过期，请联系 @Okbabybo 续费")
+        return False
+    except Exception as e:
+        log(f"❌ 授权验证失败：{e}，请检查授权文件")
+        return False
 
 # === 新增优化模块 ===
 ADX_PERIOD = 14
@@ -38,10 +69,10 @@ RISK_PCT = 0.10
 MIN_BAL = 3
 OPEN_COOLDOWN = 0
 
-SL_ATR_MULT = 0.02   # 改为固定2% SL（原1.5×ATR太紧）
+SL_ATR_MULT = 0.025  # 优化：2.5% SL，20x下更稳健
 TP1_PCT = 0.02       # 优化：3%→2%，更灵敏止盈，积小胜为大胜
 TP2_TRIGGER = 0.04   # TP2从6%→4%，跟上TP1节奏
-TP2_BUFFER = 0.008    # 追踪回撤1%→0.8%，更快保护利润
+TP2_BUFFER = 0.01    # 追踪回撤1%，增加呼吸空间
 WIN_STREAK_ACCEL = 2   # 连赢2次TP1后激活加速模式
 WIN_STREAK_THRESH = 0.05  # 加速模式下RSI门槛临时降5%
 ACCEL_SCORE_BOOST = 2  # 加速模式下SHORT信号评分额外加分
@@ -82,9 +113,11 @@ def check_crash_safety():
         log(f"⚠️ 安全模式：10分钟内重启{count}次，等待冷静期...")
         return False  # False = 拒绝交易
     return True
-DRAWDOWN_PROTECT = 0.15  # 利润保护：账户从高点回撤15%则减半仓
+DRAWDOWN_PROTECT = 0.30  # 小账户回撤30%才触发（原15%太敏感）
 DRAWDOWN_COOLDOWN = 1800   # 回撤保护冷却期：30分钟内不重复触发
 DRAWDOWN_COOLDOWN_FILE = "/root/.openclaw/workspace/.drawdown_cooldown"  # 冷却期记录
+DRAWDOWN_LOCK_FILE = "/root/.openclaw/workspace/.drawdown_lock"  # 回撤后冷静期锁
+DRAWDOWN_LOCK_SECS = 600   # 冷静期10分钟（原15分钟），加快反手机会
 HIGH_WATER_FILE = "/root/.openclaw/workspace/.high_water"  # 历史最高余额记录
 RISK_DANGER = 20       # 危险区余额阈值（低于此值风险减半）
 RISK_DANGER_PCT = 0.05  # 危险区风控：风险从10%降到5%
@@ -95,6 +128,7 @@ TREND_STATE_FILE = "/root/.openclaw/workspace/.trend_state"
 TREND_WARN_COOLDOWN = 300  # 冷却5分钟
 WARN_FILE = "/root/.openclaw/workspace/.trend_warn"  # 待发送预警文件
 MIN_TRADE_INTERVAL = 30  # 最小下单间隔（秒），防止过度交易
+MANUAL_CLOSE_COOLDOWN = 60  # 手动平仓后冷静期（秒），1分钟内禁止同方向新开仓
 
 def load_trend_state():
     try:
@@ -267,8 +301,15 @@ def get_all_positions(symbol):
     return positions
 
 def startup_self_check():
-    """启动自检：验证所有API返回类型正确，不正确则拒绝启动"""
-    log("启动自检：验证API响应类型...")
+    """启动自检：验证授权码 + API返回类型，全部通过才启动"""
+    log("启动自检...")
+    # 第一步：验证授权
+    if not verify_license():
+        log("❌ 授权验证失败，Bot拒绝启动。请联系 Telegram @Okbabybo 获取授权")
+        log("下载地址：https://github.com/okbabybo/SpeedClaw-Bot20x-Skill")
+        exit(1)
+    # 第二步：验证API
+    log("验证API响应类型...")
     errors = []
     try:
         bal = get_balance()
@@ -334,6 +375,10 @@ def get_signal(symbol):
     k1h = get_klines(symbol, "1h", 100)
     k15m = get_klines(symbol, "15m", 100)
     
+    # 数据不足时直接返回None，防止None比较崩溃
+    if len(k4h) < 25 or len(k1h) < 25 or len(k15m) < 25:
+        log(f"{symbol} K线数据不足，跳过本次信号")
+        return None
     c4h = [float(k[4]) for k in k4h]
     c1h = [float(k[4]) for k in k1h]
     c15m = [float(k[4]) for k in k15m]
@@ -386,7 +431,7 @@ def get_signal(symbol):
     # ===== 做空条件（全部满足才做空）=====
     # r4<15时为超卖警戒，不允许做空（价格可能瞬间反弹）
     oversold_guard = r4 < 15
-    short_ready = (cur < ema1h_20 and r1 > 35 and r4 >= 15 and r4 < 60 and (market_trending or r1 > 40)) and not market_weak
+    short_ready = (cur < ema1h_20 and r1 > 50 and r4 >= 15 and r4 < 60 and (market_trending or r1 > 55)) and not market_weak
     
     # 趋势评分（用于日志显示）
     trend_score = 0
@@ -534,6 +579,7 @@ def get_signal(symbol):
         'trend_up': trend_up, 'trend_score': trend_score,
         'long_ready': long_ready, 'short_ready': short_ready,
         'trend_reasons': trend_reasons,
+        'trend4h_price': trend4h_price,  # 新增：4H EMA趋势方向
         'div': 'bull' if div_bull else ('bear' if div_bear else None),
         'sig': sig, 'reasons': reasons,
         'counter_trend': counter_trend_sig is not None,
@@ -579,6 +625,21 @@ def check_drawdown_protection(balance):
         return True, high
     return False, high
 
+def is_drawdown_locked():
+    """检查是否在回撤冷静期内"""
+    try:
+        with open(DRAWDOWN_LOCK_FILE) as f:
+            unlock_time = float(f.read().strip())
+        return time.time() < unlock_time
+    except:
+        return False
+
+def trigger_drawdown_lock():
+    """触发回撤冷静期"""
+    with open(DRAWDOWN_LOCK_FILE, "w") as f:
+        f.write(str(time.time() + DRAWDOWN_LOCK_SECS))
+    log(f"回撤冷静期锁定：{DRAWDOWN_LOCK_SECS//60}分钟内禁止开新仓")
+
 def calc_qty(balance, atr, price):
     risk_pct = get_risk_pct(balance)
     risk_amount = balance * risk_pct
@@ -610,13 +671,18 @@ def main():
     
     while True:
         try:
-            bal = get_balance()
+            bal = get_balance() or 0
             now = time.time()
             hour_utc = int(datetime.utcnow().strftime('%H'))
             
             # 安全模式检查：频繁重启则停止交易
             if not check_crash_safety():
                 time.sleep(30)
+                continue
+            
+            # 回撤冷静期：回撤保护触发后禁止开新仓
+            if is_drawdown_locked():
+                time.sleep(15)
                 continue
             
             # === 复利风控：更新历史最高 & 检查回撤 ===
@@ -634,6 +700,7 @@ def main():
             drawback_triggered, high = check_drawdown_protection(bal)
             if drawback_triggered and (now - last_drawdown) > DRAWDOWN_COOLDOWN:
                 log(f"⚠️ 回撤保护触发：高点${high:.2f} → 当前${bal:.2f}，减半仓")
+                trigger_drawdown_lock()  # 锁定30分钟冷静期
                 with open(DRAWDOWN_COOLDOWN_FILE, "w") as f:
                     f.write(str(now))
                 # 遍历所有状态文件，减半所有持仓
@@ -688,6 +755,8 @@ def main():
             for symbol in ["BTCUSDT", "ETHUSDT"]:
                 sf = state_files[symbol]
                 info = get_signal(symbol)
+                if info is None:
+                    time.sleep(15); continue
                 positions = get_all_positions(symbol)
                 
                 # === v5.2 新增：趋势反转预警 ===
@@ -704,6 +773,8 @@ def main():
                     if s.get("pos") and not pos:
                         log(f"{symbol} {direction} 手动平仓已同步 | 上次:{s.get('last','?')}")
                         s["closed"] = now
+                        s["manual_close_dir"] = direction  # 记录被手动平仓的方向
+                        s["manual_close_time"] = now  # 冷静期起点
                         s["last"] = s.get("last", "closed")
                         s.pop("pos", None)
                         with open(sf_file, "w") as f: json.dump(s, f)
@@ -711,7 +782,7 @@ def main():
                     
                     if not pos:
                         sig = info['sig']
-                        closed_time = s.get("closed", now - OPEN_COOLDOWN - 1)
+                        closed_time = s.get("closed") or (now - OPEN_COOLDOWN - 1)
                         win_streak = s.get("win_streak", 0)  # 继承上次的连赢记录
                         accel_active = win_streak >= WIN_STREAK_ACCEL
                         reverse_target = None  # 反向信号标志：需要反向开仓时设置
@@ -766,7 +837,7 @@ def main():
                                     trend_ok = True
                                     log(f"{symbol} {direction} v5.4趋势跟随信号(R1={info['r1']:.0f}<50,趋势↑)放宽trend_ok")
                                 # SHORT: v5.4趋势跟随触发，EMA确认但RSI4H<40导致short_ready=False → 允许信号
-                                elif direction == "SHORT" and sig == "SHORT" and info['r1'] > 45 and not info['trend_up']:
+                                elif direction == "SHORT" and sig == "SHORT" and info['r1'] > 50 and not info['trend_up'] and not info.get('trend4h_price', True):
                                     trend_ok = True
                                     log(f"{symbol} {direction} v5.4趋势跟随信号(R1={info['r1']:.0f}>50,趋势↓)放宽trend_ok")
                             if not trend_ok:
@@ -780,6 +851,10 @@ def main():
                         # 防过度交易：检查最近一次下单时间
                         if last_trade_time and (now - last_trade_time) < MIN_TRADE_INTERVAL:
                             log(f"{symbol} {direction} 防过度交易：距上次下单{MIN_TRADE_INTERVAL}秒内，跳过")
+                        # 手动平仓冷静期：10分钟内禁止同方向新开仓（允许反向开仓）
+                        elif sig_ok and s.get("manual_close_time") and s.get("manual_close_dir") == direction and (now - s["manual_close_time"]) < MANUAL_CLOSE_COOLDOWN:
+                            remaining = int(MANUAL_CLOSE_COOLDOWN - (now - s["manual_close_time"]))
+                            log(f"{symbol} {direction} 手动平仓冷静期：还剩{remaining}秒，跳过")
                         elif sig_ok and reasons and bal > MIN_BAL and (now - closed_time) > OPEN_COOLDOWN:
                             actual_dir = reverse_target if reverse_target else direction
                             qty = calc_qty(bal, info['atr'], info['cur'])
