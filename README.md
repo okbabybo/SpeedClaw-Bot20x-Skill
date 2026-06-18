@@ -6,6 +6,8 @@
 
 **策略评分：87/100** | v5.4 | Python 3 | 胜率：100%(4/4全胜)
 
+**🚀 订阅页面：https://okbabybo.github.io/SpeedClaw-Bot20x-Skill/**
+
 ---
 
 ## 🎯 交易品种
