@@ -12,6 +12,7 @@ app.config['JSON_AS_ASCII'] = False
 CONTACT = "@Okbabybo"
 GITHUB = "https://github.com/okbabybo/SpeedClaw-Bot20x-Skill"
 PRICE = "399.9 USDT / 年"
+WALLET = "0x344FfCe2f7B8f580D4e054F7213cb231CD15c3cd"
 
 PAGE = """
 <!DOCTYPE html>
@@ -53,6 +54,12 @@ PAGE = """
   .step-box h4 { color: #f7931a; font-size: 13px; margin-bottom: 10px; }
   .step { display: flex; align-items: center; margin-bottom: 8px; font-size: 13px; color: #aaa; }
   .step-num { background: #333; color: #f7931a; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; margin-right: 10px; flex-shrink: 0; }
+  .wallet-box { background: #0d2d1a; border: 2px solid #4caf50; border-radius: 14px; padding: 20px; margin-bottom: 20px; }
+  .wallet-box .label { color: #4caf50; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+  .wallet-box .addr { color: #fff; font-family: monospace; font-size: 13px; background: #0a1f10; padding: 10px; border-radius: 8px; word-break: break-all; margin-bottom: 8px; }
+  .wallet-box .network { color: #888; font-size: 12px; }
+  .wallet-box .copy-btn { background: #4caf50; color: #fff; border: none; padding: 6px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+  .wallet-box .copy-btn:hover { background: #45a049; }
 </style>
 </head>
 <body>
@@ -82,12 +89,19 @@ PAGE = """
     <div class="desc">订阅后获取授权码 + 完整策略包</div>
   </div>
 
+  <div class="wallet-box">
+    <div class="label">💰 BSC 收款地址（转账到此地址）</div>
+    <div class="addr" id="walletAddr">{{ WALLET }}</div>
+    <div class="network">网络：BSC (BEP20) · 只收 USDT</div>
+    <button class="copy-btn" onclick="copyWallet()">📋 复制地址</button>
+  </div>
+
   <div class="step-box">
     <h4>📋 订阅流程</h4>
-    <div class="step"><span class="step-num">1</span> 点击上方 GitHub 地址查看策略详情</div>
-    <div class="step"><span class="step-num">2</span> 联系 Telegram 购买订阅</div>
-    <div class="step"><span class="step-num">3</span> 付款后获得授权码 + 使用文档</div>
-    <div class="step"><span class="step-num">4</span> GitHub 下载机器人，开箱即用</div>
+    <div class="step"><span class="step-num">1</span> 复制上方收款地址</div>
+    <div class="step"><span class="step-num">2</span> 向该地址转账 <b style="color:#f7931a">399.9 USDT</b>（BSC网络）</div>
+    <div class="step"><span class="step-num">3</span> 联系 Telegram 发送转账截图</div>
+    <div class="step"><span class="step-num">4</span> 收到授权码 + GitHub 下载机器人</div>
   </div>
 
   <div class="contact">
@@ -98,8 +112,17 @@ PAGE = """
 
   <p class="note">
     支持：币安 USDT-M 永续合约（BTC / ETH）<br>
-    网络：BSC (BEP20) · 收款地址：0x344FfCe2f7B8f580D4e054F7213cb231CD15c3cd
+    网络：BSC (BEP20)
   </p>
+</div>
+
+<script>
+function copyWallet() {
+  navigator.clipboard.writeText("{{ WALLET }}").then(() => {
+    alert("收款地址已复制！");
+  });
+}
+</script>
 </div>
 </body>
 </html>
