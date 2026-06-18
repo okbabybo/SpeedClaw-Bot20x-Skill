@@ -887,6 +887,18 @@ def main():
                         if "best" not in s: s["best"] = entry
                         
                         if d == "LONG":
+                            # ===== 止损检查 =====
+                            sl_price = s.get("sl")
+                            if sl_price and cur <= sl_price:
+                                do_order(symbol, "SELL", "LONG", round(pos["qty"], 3))
+                                log(f"{symbol} LONG 止损 @{cur:.0f} (SL:{sl_price:.0f})")
+                                s.clear()
+                                loss_streak_count += 1
+                                loss_streak_count = min(loss_streak_count, LOSS_STREAK_LIMIT)
+                                last_loss_time = now
+                                with open(sf_file, "w") as f: json.dump(s, f)
+                                continue
+                            
                             pnl = (cur - entry) / entry * 100
                             best_high = max(s.get("best", entry), cur)
                             s["best"] = best_high
@@ -913,6 +925,18 @@ def main():
                                     continue
                             
                         else:
+                            # ===== 止损检查 =====
+                            sl_price = s.get("sl")
+                            if sl_price and cur >= sl_price:
+                                do_order(symbol, "BUY", "SHORT", round(pos["qty"], 3))
+                                log(f"{symbol} SHORT 止损 @{cur:.0f} (SL:{sl_price:.0f})")
+                                s.clear()
+                                loss_streak_count += 1
+                                loss_streak_count = min(loss_streak_count, LOSS_STREAK_LIMIT)
+                                last_loss_time = now
+                                with open(sf_file, "w") as f: json.dump(s, f)
+                                continue
+                            
                             pnl = (entry - cur) / entry * 100
                             best_low = min(s.get("best", entry), cur)
                             s["best"] = best_low
