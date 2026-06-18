@@ -26,8 +26,9 @@ from bot.license_manager import generate_key, load_db, save_db
 TRC20_ADDRESS = "0x344FfCe2f7B8f580D4e054F7213cb231CD15c3cd"
 PRICE_USDT = 399.9
 LICENSE_DAYS = 365
-CHECK_ADDRESS = "TXYZopYRhr2StqEWrSE7JUGDTZpJ3M5LA"  # TRC20收款地址
-TRONGRID_API = "https://api.trongrid.io"  # Tron mainnet
+BSC_RPC = "https://bsc-dataseed.binance.org/"
+BSC_SCAN_API = "https://api.bscscan.com/api"
+BSC_SCAN_KEY = ""  # BscScan API Key（不填也能用，只是查tx时有限制）
 
 app = Flask(__name__)
 app.config['JSON_AS_ASCII'] = False
@@ -65,52 +66,56 @@ def send_email(to_email, subject, body):
         print(f"[邮件] 发送失败 -> {to_email}: {e}")
         return False
 
-# ========== TRC20 验证 ==========
-def check_trc20_payment(txid, expected_amount=PRICE_USDT):
+# ========== BSC BEP20 验证 ==========
+def check_bsc_payment(txid, expected_amount=PRICE_USDT):
     """
-    通过TronGrid API验证TRC20转账是否成功
+    通过BscScan API验证BEP20 USDT转账是否成功
     返回: (success, message)
     """
     try:
-        # 先获取交易信息
-        url = f"{TRONGRID_API}/v1/transactions/{txid}/info"
-        r = requests.get(url, timeout=10)
+        # 先验证交易是否成功（通过BscScan API）
+        params = {
+            "module": "transaction",
+            "action": "gettxinfo",
+            "txhash": txid,
+            "apikey": BSC_SCAN_KEY or "test",
+        }
+        r = requests.get(BSC_SCAN_API, params=params, timeout=10)
         if r.status_code != 200:
-            return False, "交易不存在或网络错误"
+            return False, "交易查询失败，请稍后重试"
         
         data = r.json()
-        if data.get("ret", [{}])[0].get("contractRet") != "SUCCESS":
-            return False, "交易未成功"
+        if data.get("status") != "1":
+            return False, "交易未成功或不存在"
         
-        # 获取交易详情（含TRC20转账）
-        detail_url = f"{TRONGRID_API}/v1/transactions/{txid}/events"
-        r2 = requests.get(detail_url, timeout=10)
-        if r2.status_code != 200:
-            return False, "无法获取交易详情"
+        # 获取合约转账详情（token_transfer需要单独查）
+        params2 = {
+            "module": "account",
+            "action": "tokentx",
+            "contractaddress": "0x55d398326f99059fF775485246999027B3197955",  # BSC USDT合约
+            "address": TRC20_ADDRESS,
+            "startblock": 0,
+            "endblock": 99999999,
+            "sort": "desc",
+            "apikey": BSC_SCAN_KEY or "test",
+        }
+        r2 = requests.get(BSC_SCAN_API, params=params2, timeout=10)
+        txs = r2.json().get("result", [])
         
-        events = r2.json().get("data", [])
+        if not isinstance(txs, list):
+            return False, "无法获取转账记录，请手动确认"
         
-        for event in events:
-            if event.get("type") == "Transfer" and event.get("contract_address") == "":
-                # 过滤TRC20 USDT (空地址=Tron USDD/USDT)
-                continue
-            
-            # 解析TRC20转账参数
-            try:
-                result_data = event.get("result", {})
-                to_addr = result_data.get("to_address", "")
-                amount_raw = result_data.get("value", "0")
+        for tx in txs:
+            if tx.get("hash", "").lower() == txid.lower():
+                value = float(tx.get("value", "0")) / 1e18  # USDT精度18
+                to_addr = tx.get("to", "").lower()
                 
-                # 将TRC20精度转换 (USDT精度=6)
-                amount = int(amount_raw) / 1e6
-                
-                # 检查目标地址和金额
-                if to_addr == CHECK_ADDRESS and amount >= expected_amount:
-                    return True, f"✅ 收到 {amount} USDT，转账成功！"
-            except:
-                continue
+                if to_addr == TRC20_ADDRESS.lower() and value >= expected_amount:
+                    return True, f"✅ 收到 {value:.2f} USDT，转账成功！"
+                elif value < expected_amount:
+                    return False, f"金额不足：收到 {value:.2f} USDT，需要 {expected_amount} USDT"
         
-        return False, f"未检测到向 {CHECK_ADDRESS} 的 {expected_amount} USDT 转账"
+        return False, f"未检测到向 {TRC20_ADDRESS} 的 {expected_amount} USDT 转账记录"
         
     except Exception as e:
         return False, f"验证异常: {e}"
@@ -225,7 +230,7 @@ PAYMENT_PAGE = """
     <div class="addr">{{ payment_address }}</div>
     <button class="copy-btn" onclick="copyAddr()">复制地址</button>
     <div style="margin-top:10px; font-size:12px; color:#888;">
-     金额: <b style="color:#f7931a">{{ price }} USDT</b> · 网络: <b>TRC20 (TRON)</b>
+     金额: <b style="color:#f7931a">{{ price }} USDT</b> · 网络: <b>BSC (BEP20)</b>
     </div>
   </div>
 
@@ -285,7 +290,7 @@ def verify():
     if not txid:
         return render_template_string(PAYMENT_PAGE, email=email, payment_address=TRC20_ADDRESS, price=PRICE_USDT, error="请输入交易哈希")
     
-    ok, msg = check_trc20_payment(txid, PRICE_USDT)
+    ok, msg = check_bsc_payment(txid, PRICE_USDT)
     
     if ok:
         key, result = auto_generate_license(email)
