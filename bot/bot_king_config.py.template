@@ -1,0 +1,12 @@
+# BotKing 配置文件模板
+# 复制此文件为 config.py 并填入您的API密钥
+
+binance_api_key = "YOUR_API_KEY_HERE"
+binance_secret = "YOUR_SECRET_HERE"
+
+# 币种配置（默认：BTC, ETH, BNB, SOL, AVAX, XRP）
+coins = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "AVAXUSDT", "XRPUSDT"]
+
+# 日志文件路径
+log_file = "bot_king.log"
+state_dir = "./"
