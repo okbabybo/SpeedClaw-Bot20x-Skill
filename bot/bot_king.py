@@ -105,6 +105,17 @@ def calc_macd(prices, fast=12, slow=26, signal=9):
     macd = ema_fast - ema_slow
     return macd, 0, 0
 
+# 币种相关性映射（BTC为标杆，其他币参考BTC模式调整）
+CORRELATION_WITH_BTC = {
+    "BTCUSDT": 1.0,   # 自身
+    "ETHUSDT": 0.85,  # 高度相关
+    "BNBUSDT": 0.70,  # 中度相关
+    "SOLUSDT": 0.65,  # 中度相关
+    "AVAXUSDT": 0.60, # 中低相关
+    "XRPUSDT": 0.55,  # 低相关
+    "SUIUSDT": 0.50,
+}
+
 def calc_atr(klines, period=14):
     if not klines or len(klines) < period+1: return 0
     trs = []
@@ -839,9 +850,10 @@ def main():
 
             # 更新全局市场模式
             btc_mode = signals.get('BTCUSDT', {}).get('mode', 'RANGE_BOUND')
+            btc_conf = signals.get('BTCUSDT', {}).get('confidence', 0)
             sm.market_mode = btc_mode
 
-            # === 清理死引擎（所有格都平了）=== Bug #2 fix
+            # === 清理死引擎（所有格都平了）===
             for sym in list(grid_engines.keys()):
                 if grid_engines[sym]._all_sold:
                     log(f"[引擎清理] {sym} 所有格已平，移除引擎")
@@ -856,6 +868,10 @@ def main():
                     log(f"[⏰极端时段] 北京时间22:00-02:00，暂停开仓，等待流动性恢复")
                 buy_list = []
 
+            # === 关联性过滤：BTC熊市时其他币降低开仓意愿 ===
+            if btc_mode == "TREND_DOWN" and btc_conf >= 0.7:
+                log(f"[📉关联过滤] BTC熊市置信{btc_conf:.0%}，降低关联币开仓优先级")
+
             buy_list = sorted(
                 [(s, i) for s, i in signals.items()
                  if (s not in grid_engines or grid_engines.get(s, {})._all_sold)
@@ -864,34 +880,47 @@ def main():
                  and (i['mode'] in ("TREND_UP", "TREND_UP_RECALL", "VOLATILE_OVERSOLD")
                       or (i['mode'] == "RANGE_BOUND" and i.get('total_score', 0) > 0.5))
                  and i.get('price', 0) > 0],
-                key=lambda x: x[1].get('total_score', 0),
+                key=lambda x: x[1].get('total_score', 0) * CORRELATION_WITH_BTC.get(x[0], 0.5)
+                * (0.6 if btc_mode == "TREND_DOWN" and btc_conf >= 0.7 else 1.0),  # BTC熊市降权
                 reverse=True
             )
 
-            def calc_position_size(bal, active, info):
+            def calc_position_size(bal, active, info, btc_mode="RANGE_BOUND", btc_conf=0):
                 tier = TIER4 if bal > 1000 else TIER3 if bal > 200 else TIER2 if bal > 50 else TIER1
-                return min(tier * info.get('pos_pct', 1.0), bal * 0.35)
+                base = tier * info.get('pos_pct', 1.0)
+                # 置信度调节：>80%信心 → 仓位×1.3，<65% → 仓位×0.7
+                conf = info.get('confidence', 0.5)
+                conf_factor = 1.0 + (conf - 0.6) * 1.5  # 0.6时×1.0，0.8时×1.3，1.0时×1.6
+                # BTC熊市时，关联币种降仓
+                corr = CORRELATION_WITH_BTC.get(sym, 0.5)
+                btc_factor = 1.0 if btc_mode not in ("TREND_DOWN", "CRISIS") else (1.0 if corr < 0.65 else 0.3)
+                return min(base * conf_factor * btc_factor, bal * 0.35)
 
             for sym, info in buy_list:
                 if active_total >= MAX_POSITIONS: break
                 if investable < 15: break
 
-                per_coin = calc_position_size(investable, max(active_total, 1), info)
+                per_coin = calc_position_size(investable, max(active_total, 1), info, btc_mode, btc_conf)
                 if info['trend_bias'] >= 0.7:
                     eng = TrendEngine(sym, ex, sm=sm)
                     if eng.buy(info['price'], per_coin / info['price']):
                         trend_engines[sym] = eng
                         investable -= per_coin
                         active_total += 1
-                        log(f"[趋势开仓] {sym}@{info['price']:.2f} 模式:{info['mode']}")
+                        log(f"[趋势开仓] {sym}@{info['price']:.2f} 模式:{info['mode']} 信心:{info.get('confidence',0):.0%} 仓位:${per_coin:.2f}")
                 elif info['grids'] > 0:
                     phase1 = get_phase1_grids(balance)
+                    # ATR>3%时扩大止盈目标（波动大留更多空间）
+                    grid_profit = info['grid_profit']
+                    if info.get('atr', 0) / max(info['price'], 1) > 0.03:
+                        grid_profit = min(grid_profit * 1.5, 0.015)
                     eng = GridEngine(sym, info['price'], info['grids'],
-                                    info['grid_profit'], info.get('atr', 0), ex, per_coin,
+                                    grid_profit, info.get('atr', 0), ex, per_coin,
                                     phase1_limit=phase1, sm=sm)
                     grid_engines[sym] = eng
                     investable -= per_coin
                     active_total += 1
+                    log(f"[网格开仓] {sym}@{info['price']:.2f} {info['grids']}格 模式:{info['mode']} 信心:{info.get('confidence',0):.0%} 仓位:${per_coin:.2f} 止盈:{grid_profit*100:.2f}%")
                     log(f"[网格开仓] {sym}@{info['price']:.2f} {info['grids']}格 模式:{info['mode']}")
 
             # === SELL信号平仓（区分止盈 vs 止损）===
