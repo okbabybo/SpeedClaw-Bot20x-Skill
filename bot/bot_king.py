@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
 SpeedClaw BotKing 现货机器人 v1.3
-混沌龙虾 🦞 — 独立部署版
+混沌龙虾 🦞 - 独立部署版
 
-名称：SpeedClaw BotKing
-类型：现货智能网格+趋势双引擎
-交易所：币安现货 USDT-M
+名称:SpeedClaw BotKing
+类型:现货智能网格+趋势双引擎
+交易所:币安现货 USDT-M
 
-v1.3 修复（2026-06-24）：
-  P0-1：网格区间扩大2倍，确保SL在网格范围内
-  P0-2：手动平仓检测增加半卖情况，防止仓位错乱
-  P1-4：引擎状态持久化，重启后自动恢复仓位
-  P1-5：实时检查异常必须打日志，不再静默吞掉
+v1.3 修复(2026-06-24):
+  P0-1:网格区间扩大2倍,确保SL在网格范围内
+  P0-2:手动平仓检测增加半卖情况,防止仓位错乱
+  P1-4:引擎状态持久化,重启后自动恢复仓位
+  P1-5:实时检查异常必须打日志,不再静默吞掉
 """
 
 import requests, time, json, yaml, math
@@ -35,25 +35,25 @@ COINS = cfg.get('coins', ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'AVAXUSDT'
 # ==================== BotKing v1.1 核心参数 ====================
 
 # ================== BotKing v1.2 核心参数 ==================
-# v1.2 优化重点：修复网格期望值崩溃
-# v1.1问题：SL=8% + TP=0.4% → 盈亏比1:20 → 需要95%胜率（不可能达到）
-# v1.2方案：SL=2% + TP=1% → 盈亏比1:2 → 50%胜率即可正期望
+# v1.2 优化重点:修复网格期望值崩溃
+# v1.1问题:SL=8% + TP=0.4% → 盈亏比1:20 → 需要95%胜率(不可能达到)
+# v1.2方案:SL=2% + TP=1% → 盈亏比1:2 → 50%胜率即可正期望
 
-# ---- 网格引擎参数（v1.2核心修复）----
-GRID_PROFIT     = 0.010    # 每格1%（v1.2：原0.4%→1%）
-GRID_VOL_PROFIT = 0.015   # 高波动每格1.5%（v1.2：原0.6%→1.5%）
-GRID_SL_PCT     = 0.02    # 网格止损2%（v1.2：原8%→2%，大幅收窄！）
-TS_PCT          = 0.015   # 网格追踪回撤1.5%（v1.2：原2.5%→1.5%）
-# Phase2用锁定利润开仓，无真实资本风险，TP=0.75%
-GRID_PHASE2_TP  = 0.0075  # Phase2每格利润0.75%（比Phase1的1%低）
+# ---- 网格引擎参数(v1.2核心修复)----
+GRID_PROFIT     = 0.010    # 每格1%(v1.2:原0.4%→1%)
+GRID_VOL_PROFIT = 0.015   # 高波动每格1.5%(v1.2:原0.6%→1.5%)
+GRID_SL_PCT     = 0.02    # 网格止损2%(v1.2:原8%→2%,大幅收窄!)
+TS_PCT          = 0.015   # 网格追踪回撤1.5%(v1.2:原2.5%→1.5%)
+# Phase2用锁定利润开仓,无真实资本风险,TP=0.75%
+GRID_PHASE2_TP  = 0.0075  # Phase2每格利润0.75%(比Phase1的1%低)
 
-# ---- 趋势引擎参数（保持不变）----
+# ---- 趋势引擎参数(保持不变)----
 SL_PCT          = 0.12     # 趋势止损12%
 TP_TREND1       = 0.15     # 趋势第一目标+15%
 TP_TREND2       = 0.25     # 趋势第二目标+25%
 TS_TREND_PCT    = 0.05     # 趋势追踪回撤5%
 
-# 资金分级（现货无杠杆）
+# 资金分级(现货无杠杆)
 TIER1 = 50
 TIER2 = 150
 TIER3 = 500
@@ -67,12 +67,12 @@ CRASH_PAUSE      = 900
 PROFIT_LOCK      = 0.50
 PHASE2_DELAY     = 300
 
-# ATR自适应（v1.2修复：SL=2%为基准）
-# 盈亏比 TP/SL = 1%/2% = 1:2，50%胜率即可正期望
+# ATR自适应(v1.2修复:SL=2%为基准)
+# 盈亏比 TP/SL = 1%/2% = 1:2,50%胜率即可正期望
 ATR_GRID_MAP = {
-    'high':   (2, 0.020),   # 高ATR>5%：2格×2%=4%总利润 vs 4%SL，盈亏比1:1（50%胜率正期望）
-    'medium': (4, 0.010),   # 中ATR 2-5%：4格×1%=4%总利润 vs 8%SL，盈亏比1:2（50%胜率正期望）
-    'low':    (4, 0.010),   # 低ATR<2%：4格×1%=4%总利润 vs 8%SL，盈亏比1:2（50%胜率正期望）
+    'high':   (2, 0.020),   # 高ATR>5%:2格×2%=4%总利润 vs 4%SL,盈亏比1:1(50%胜率正期望)
+    'medium': (4, 0.010),   # 中ATR 2-5%:4格×1%=4%总利润 vs 8%SL,盈亏比1:2(50%胜率正期望)
+    'low':    (4, 0.010),   # 低ATR<2%:4格×1%=4%总利润 vs 8%SL,盈亏比1:2(50%胜率正期望)
 }
 
 # 运行
@@ -81,9 +81,9 @@ SCAN_INTERVAL  = 180
 SAVE_INTERVAL  = 60
 MAX_POSITIONS  = 3
 
-# === 优化2：API限速与熔断 ===
+# === 优化2:API限速与熔断 ===
 API_RATE_LIMIT_WINDOW = 60     # 60秒窗口
-API_MAX_REQUESTS     = 900    # 币安现货<1200请求/分钟，留300余量
+API_MAX_REQUESTS     = 900    # 币安现货<1200请求/分钟,留300余量
 API_CIRCUIT_BREAKER_THRESHOLD = 50  # 连续50次失败触发熔断
 API_CIRCUIT_BREAKER_PAUSE = 120     # 熔断暂停120秒
 _api_request_log = []          # 请求时间戳记录
@@ -111,20 +111,20 @@ def log(msg):
         f.write(f"[{ts}] {msg}\n")
 
 def _check_api_rate_limit():
-    """优化2：API限速检查。每次调用前检查，超限则等待。"""
+    """优化2:API限速检查。每次调用前检查,超限则等待。"""
     global _api_request_log
     now = time.time()
     # 清理60秒外的记录
     _api_request_log = [t for t in _api_request_log if now - t < API_RATE_LIMIT_WINDOW]
     if len(_api_request_log) >= API_MAX_REQUESTS:
         sleep_time = API_RATE_LIMIT_WINDOW - (now - _api_request_log[0]) + 1
-        log(f"[⚠️ API限速] 60秒内请求{len(_api_request_log)}次，休眠{sleep_time:.0f}秒")
+        log(f"[⚠️ API限速] 60秒内请求{len(_api_request_log)}次,休眠{sleep_time:.0f}秒")
         time.sleep(max(1, sleep_time))
         _api_request_log = [t for t in _api_request_log if now - t < API_RATE_LIMIT_WINDOW]
     _api_request_log.append(now)
 
 def _check_circuit_breaker():
-    """优化2：熔断检查。如果触发熔断，暂停所有交易操作。"""
+    """优化2:熔断检查。如果触发熔断,暂停所有交易操作。"""
     global _circuit_broken, _circuit_break_until
     if _circuit_broken and time.time() < _circuit_break_until:
         remaining = int(_circuit_break_until - time.time())
@@ -135,18 +135,18 @@ def _check_circuit_breaker():
     return True, 0
 
 def _api_fail():
-    """优化2：记录API失败。连续50次失败触发熔断。"""
+    """优化2:记录API失败。连续50次失败触发熔断。"""
     global _api_fail_count, _circuit_broken, _circuit_break_until
     _api_fail_count += 1
     if _api_fail_count >= API_CIRCUIT_BREAKER_THRESHOLD:
         _circuit_broken = True
         _circuit_break_until = time.time() + API_CIRCUIT_BREAKER_PAUSE
-        log(f"[💥 熔断触发] API连续{_api_fail_count}次失败，暂停120秒")
+        log(f"[💥 熔断触发] API连续{_api_fail_count}次失败,暂停120秒")
         return True
     return False
 
 def _api_success():
-    """优化2：API成功调用，重置失败计数。"""
+    """优化2:API成功调用,重置失败计数。"""
     global _api_fail_count
     _api_fail_count = 0
 
@@ -174,8 +174,8 @@ def calc_macd(prices, fast=12, slow=26, signal=9):
     macd = ema_fast - ema_slow
     return macd, 0, 0
 
-# 币种相关性映射（BTC为标杆）
-# 优化3：加入关联性敞口检查，高相关币种在熊市不能同时重仓
+# 币种相关性映射(BTC为标杆)
+# 优化3:加入关联性敞口检查,高相关币种在熊市不能同时重仓
 CORRELATION_WITH_BTC = {
     "BTCUSDT": 1.0,
     "ETHUSDT": 0.85,  # 高度相关
@@ -233,7 +233,7 @@ def get_fear_greed():
         _last_fg_fetch = now
         log(f"[宏观] Fear & Greed: {_last_fear_greed} ({data.get('value_classification','')})")
     except:
-        log(f"[宏观] Fear & Greed获取失败，使用默认值50")
+        log(f"[宏观] Fear & Greed获取失败,使用默认值50")
     return _last_fear_greed
 
 def is_extreme_hour():
@@ -355,7 +355,7 @@ def detect_market_mode(symbol, ex):
 
     if fg < 25 and mode in ("VOLATILE_OVERSOLD", "TREND_UP_RECALL"):
         confidence = min(0.98, confidence + 0.15)
-        log(f"[Fear & Greed] 极度恐慌{fg}，超卖信号置信度提升")
+        log(f"[Fear & Greed] 极度恐慌{fg},超卖信号置信度提升")
     elif fg > 75 and mode in ("VOLATILE_OVERBOUGHT", "CRISIS"):
         confidence = min(0.98, confidence + 0.1)
 
@@ -394,7 +394,7 @@ def detect_market_mode(symbol, ex):
         'rsi_bullish_div': rsi_bullish_div,
         'vol_ratio': vol_ratio,
         'fear_greed': fg,
-        'correlation': CORRELATION_WITH_BTC.get(symbol, 0.5),  # v1.1优化3：关联性传递到主循环
+        'correlation': CORRELATION_WITH_BTC.get(symbol, 0.5),  # v1.1优化3:关联性传递到主循环
     }
 
 class GridEngine:
@@ -412,10 +412,10 @@ class GridEngine:
         self.last_tp_time = 0
         self._open_count = 0
 
-        # v1.3修复：grid_range必须覆盖完整SL区间
+        # v1.3修复:grid_range必须覆盖完整SL区间
         # SL=2% means price can drop 2% before hitting SL
         # grid_range must be >= SL distance so SL is WITHIN the grid range
-        grid_range = max(atr * 3, entry_price * GRID_SL_PCT * 2)  # 新：区间扩大2倍确保SL在范围内
+        grid_range = max(atr * 3, entry_price * GRID_SL_PCT * 2)  # 新:区间扩大2倍确保SL在范围内
         self.upper = entry_price + grid_range / 2
         self.lower = entry_price - grid_range / 2
         self.grid_width = (self.upper - self.lower) / self.max_grids if self.max_grids > 0 else grid_range
@@ -436,7 +436,7 @@ class GridEngine:
         return min(per_grid_max, base / (self.max_grids - active))
 
     def buy_grid(self, idx, price, locked_profit=0, grid_profit=None):
-        """v1.2修复：grid_profit参数允许Phase2用不同TP(0.75%)，Phase1用1%"""
+        """v1.2修复:grid_profit参数允许Phase2用不同TP(0.75%),Phase1用1%"""
         if grid_profit is None:
             grid_profit = self.grid_profit
         if idx in self.positions and not self.positions[idx].get('sold'):
@@ -452,7 +452,7 @@ class GridEngine:
                 self.positions[idx] = {
                     'buy_price': price, 'qty': qty, 'sold': False,
                     'target': price * (1 + grid_profit),
-                    'sl': price * (1 - GRID_SL_PCT),   # v1.2修复：SL=2%（与趋势引擎12%分离）
+                    'sl': price * (1 - GRID_SL_PCT),   # v1.2修复:SL=2%(与趋势引擎12%分离)
                     'ts_triggered': False, 'ts_price': 0, 'ts_high': 0,
                     'bought_at': time.time(),
                     'profit_locked': invest * grid_profit * PROFIT_LOCK,
@@ -468,11 +468,11 @@ class GridEngine:
         return False
 
     def check_phased_open(self, cur_price):
-        """Phase2用锁定利润开仓，TP=0.75%。v1.3修复：验证最小资金门槛"""
+        """Phase2用锁定利润开仓,TP=0.75%。v1.3修复:验证最小资金门槛"""
         now = time.time()
         if self._open_count >= self.max_grids: return
         if self.pending_profit <= 0: return
-        # v1.3新增：验证Phase2最小资金（PROFIT_LOCK=50%后的利润要>=11U才能开仓）
+        # v1.3新增:验证Phase2最小资金(PROFIT_LOCK=50%后的利润要>=11U才能开仓)
         available_for_phase2 = self.pending_profit * PROFIT_LOCK
         if available_for_phase2 < 11:
             log(f"[跳过Phase2] {self.symbol} 可用利润${available_for_phase2:.2f}<$11门槛")
@@ -481,7 +481,7 @@ class GridEngine:
         if self._open_count < self.phase1_limit: return
         for idx in range(self.max_grids):
             if idx not in self.positions:
-                # v1.3修复：必须等buy_grid成功才清零pending_profit
+                # v1.3修复:必须等buy_grid成功才清零pending_profit
                 success = self.buy_grid(idx, cur_price, locked_profit=self.pending_profit,
                               grid_profit=GRID_PHASE2_TP)  # v1.2: Phase2用0.75%TP
                 if success:
@@ -502,12 +502,12 @@ class GridEngine:
             bp = pos['buy_price']
             profit = (cur_price - bp) / bp
 
-            # v1.3修复：TS激活时必须保本（ts_price = max(entry, cur_price*(1-TS_PCT))
+            # v1.3修复:TS激活时必须保本(ts_price = max(entry, cur_price*(1-TS_PCT))
             if profit > TS_PCT:
                 if not pos.get('ts_triggered'):
                     pos['ts_triggered'] = True
                     pos['ts_high'] = cur_price
-                    # 保本优先：ts_price = max(entry_price, cur_price*(1-TS_PCT))
+                    # 保本优先:ts_price = max(entry_price, cur_price*(1-TS_PCT))
                     pos['ts_price'] = max(bp, cur_price * (1 - TS_PCT))
                     log(f"[TS激活] {self.symbol}格{idx}@{cur_price:.4f} 触发={pos['ts_price']:.4f}")
                 elif cur_price > pos.get('ts_high', 0):
@@ -564,31 +564,31 @@ class GridEngine:
         center = (self.upper + self.lower) / 2
         drift = (cur_price - center) / center if center > 0 else 0
         if abs(drift) > 0.25:
-            new_range = max(self.atr * 3, cur_price * GRID_SL_PCT * 2)  # v1.3修复：确保SL在范围内
+            new_range = max(self.atr * 3, cur_price * GRID_SL_PCT * 2)  # v1.3修复:确保SL在范围内
             self.upper = cur_price + new_range / 2
             self.lower = cur_price - new_range / 2
             self.grid_width = (self.upper - self.lower) / self.max_grids
-            log(f"[网格重置] {self.symbol} @{cur_price:.4f} 偏离{drift*100:+.0f}%，重新居中 "
+            log(f"[网格重置] {self.symbol} @{cur_price:.4f} 偏离{drift*100:+.0f}%,重新居中 "
                 f"区间[{self.lower:.4f}, {self.upper:.4f}]")
 
     def has_position(self):
         return any(not p.get('sold') and p['qty'] > 0 for p in self.positions.values())
 
     def detect_manual_close(self, api_qty):
-        """v1.3修复：检测用户手动平仓（包括半卖情况）"""
+        """v1.3修复:检测用户手动平仓(包括半卖情况)"""
         total_state_qty = sum(pos['qty'] for pos in self.positions.values()
                              if not pos.get('sold') and pos['qty'] > 0)
         if api_qty <= 0 and total_state_qty > 0:
-            # 情况1：完全清空
-            log(f"[⚠️ 手动清仓] {self.symbol} API持仓0，状态记录{total_state_qty}")
+            # 情况1:完全清空
+            log(f"[⚠️ 手动清仓] {self.symbol} API持仓0,状态记录{total_state_qty}")
             for idx, pos in list(self.positions.items()):
                 if pos.get('sold') or pos['qty'] <= 0: continue
                 pos['sold'] = True
                 pos['sold_at'] = time.time()
         elif api_qty < total_state_qty - 0.00001:
-            # 情况2：半卖（新增检测）
+            # 情况2:半卖(新增检测)
             diff = total_state_qty - api_qty
-            log(f"[⚠️ 手动半卖] {self.symbol} API持仓{api_qty} < 状态{total_state_qty}，差额{diff}")
+            log(f"[⚠️ 手动半卖] {self.symbol} API持仓{api_qty} < 状态{total_state_qty},差额{diff}")
             for idx in sorted(self.positions.keys()):
                 pos = self.positions[idx]
                 if pos.get('sold') or pos['qty'] <= 0: continue
@@ -597,7 +597,7 @@ class GridEngine:
                     diff -= pos['qty']
                     pos['sold'] = True
                     pos['sold_at'] = time.time()
-                    log(f"  → 格{idx}完全平掉，qty={pos['qty']}")
+                    log(f"  → 格{idx}完全平掉,qty={pos['qty']}")
                 else:
                     remaining = pos['qty'] - diff
                     log(f"  → 格{idx}部分平仓 {pos['qty']}→{remaining}")
@@ -607,7 +607,7 @@ class GridEngine:
             self.position['qty'] = max(0, sum(p['qty'] for p in self.positions.values() if not p.get('sold')))
 
     def serialize_state(self):
-        """v1.3新增：序列化引擎状态，用于StateManager持久化"""
+        """v1.3新增:序列化引擎状态,用于StateManager持久化"""
         return {
             'symbol': self.symbol,
             'entry_price': self.entry_price,
@@ -628,7 +628,7 @@ class GridEngine:
 
     @staticmethod
     def from_state(state, ex, sm=None):
-        """v1.3新增：从序列化状态恢复引擎"""
+        """v1.3新增:从序列化状态恢复引擎"""
         eng = GridEngine(
             symbol=state['symbol'],
             entry_price=state['entry_price'],
@@ -683,7 +683,7 @@ class TrendEngine:
 
         if profit > 0.15 and not self.ts_triggered:
             self.ts_triggered = True
-            # v1.3修复：保本优先 ts_price = max(entry, cur_price*(1-TS_TREND_PCT))
+            # v1.3修复:保本优先 ts_price = max(entry, cur_price*(1-TS_TREND_PCT))
             self.ts_price = max(entry, cur_price * (1 - TS_TREND_PCT))
         elif self.ts_triggered and cur_price > entry * 1.15:
             new_ts = max(entry, cur_price * (1 - TS_TREND_PCT))
@@ -697,7 +697,7 @@ class TrendEngine:
             self.peak_price = cur_price
         drawdown_from_peak = (self.peak_price - cur_price) / self.peak_price if self.peak_price > 0 else 0
         if drawdown_from_peak > 0.08 and self.peak_price > entry * 1.10:
-            log(f"[趋势破坏] {self.symbol}@{cur_price:.4f} 从峰值{self.peak_price:.4f}回落{drawdown_from_peak*100:.1f}%，趋势破坏止损")
+            log(f"[趋势破坏] {self.symbol}@{cur_price:.4f} 从峰值{self.peak_price:.4f}回落{drawdown_from_peak*100:.1f}%,趋势破坏止损")
             self._sell(cur_price, "TREND_BREAK")
             return
 
@@ -722,7 +722,7 @@ class TrendEngine:
             self._sell(cur_price, "SL")
 
     def serialize_state(self):
-        """v1.3新增：序列化引擎状态"""
+        """v1.3新增:序列化引擎状态"""
         if not self.position:
             return None
         return {
@@ -736,7 +736,7 @@ class TrendEngine:
 
     @staticmethod
     def from_state(state, ex, sm=None):
-        """v1.3新增：从序列化状态恢复引擎"""
+        """v1.3新增:从序列化状态恢复引擎"""
         if not state:
             return None
         eng = TrendEngine(symbol=state['symbol'], ex=ex, sm=sm)
@@ -780,7 +780,7 @@ class StateManager:
         self.daily_reset_time = self.data.get('daily_reset_time', 0)
         self.market_mode = "RANGE_BOUND"
         self._daily_start_balance = self.data.get('daily_start_balance', 0)
-        # v1.3新增：追踪真实已实现盈亏（区分充值和策略盈利）
+        # v1.3新增:追踪真实已实现盈亏(区分充值和策略盈利)
         self.initial_balance = self.data.get('initial_balance', 0)
         self.realized_profit = self.data.get('realized_profit', 0)
 
@@ -812,10 +812,10 @@ class StateManager:
             _check_api_rate_limit()
             bal = self.ex.get_balance()
             _api_success()
-            # v1.3新增：首次运行时记录initial_balance
+            # v1.3新增:首次运行时记录initial_balance
             if self.initial_balance == 0 and bal > 0:
                 self.initial_balance = bal
-                log(f"[💰 初始余额记录] ${bal:.2f}（区分充值与策略盈利）")
+                log(f"[💰 初始余额记录] ${bal:.2f}(区分充值与策略盈利)")
             return bal
         except:
             _api_fail()
@@ -838,7 +838,7 @@ class StateManager:
             elapsed = time.time() - self.last_loss_time
             if elapsed < self.loss_cooldown:
                 remaining = int(self.loss_cooldown - elapsed)
-                log(f"[亏损冷静期] {self.loss_streak}连亏，还需等待{remaining//60}分钟")
+                log(f"[亏损冷静期] {self.loss_streak}连亏,还需等待{remaining//60}分钟")
                 return False
             else:
                 self.loss_cooldown = 0
@@ -849,7 +849,7 @@ class StateManager:
             elapsed = time.time() - self.last_loss_time
             if elapsed < CRASH_PAUSE:
                 remaining = int(CRASH_PAUSE - elapsed)
-                log(f"[熔断] 连亏{CRASH_LIMIT}次，暂停{remaining//60}分钟")
+                log(f"[熔断] 连亏{CRASH_LIMIT}次,暂停{remaining//60}分钟")
                 return False
             else:
                 self.loss_streak = 0
@@ -859,7 +859,7 @@ class StateManager:
 
     def check_drawdown_protection(self, balance):
         if self.high_water > 0 and balance < self.high_water * (1 - DRAWDOWN_PROTECT):
-            log(f"[⚠️ 回撤保护] ${self.high_water:.2f}→${balance:.2f}，清仓止损")
+            log(f"[⚠️ 回撤保护] ${self.high_water:.2f}→${balance:.2f},清仓止损")
             self.lock_until = time.time() + 1800
             self.save()
             return False
@@ -880,19 +880,19 @@ class StateManager:
             daily_pnl = (balance - daily_start) / daily_start
             self.daily_loss = daily_pnl
             if daily_pnl < -MAX_DAILY_LOSS:
-                log(f"[⚠️ 日亏保护] 单日亏损{abs(daily_pnl)*100:.1f}% > {MAX_DAILY_LOSS*100:.0f}%，暂停1小时")
+                log(f"[⚠️ 日亏保护] 单日亏损{abs(daily_pnl)*100:.1f}% > {MAX_DAILY_LOSS*100:.0f}%,暂停1小时")
                 self.lock_until = time.time() + 3600
                 self.save()
                 return False
         return True
 
     def check_take_profit(self, balance):
-        """v1.3修复：基于真实策略盈亏提盈，而非余额（排除充值干扰）"""
+        """v1.3修复:基于真实策略盈亏提盈,而非余额(排除充值干扰)"""
         # 真实盈亏 = 当前余额 - 初始余额 - 已实现盈亏
-        # 这样充值$100不会触发提盈，只有策略真正赚了钱才提盈
+        # 这样充值$100不会触发提盈,只有策略真正赚了钱才提盈
         if self.initial_balance <= 0:
             return
-        # 真实策略盈亏 = 余额 - 初始余额（排除已提取的利润）
+        # 真实策略盈亏 = 余额 - 初始余额(排除已提取的利润)
         true_profit = balance - self.initial_balance - self.realized_profit
         hwm_with_profit = self.high_water - self.initial_balance
         if hwm_with_profit > 0 and true_profit >= hwm_with_profit * 1.20:
@@ -911,9 +911,9 @@ class StateManager:
     def is_locked(self):
         return time.time() < self.lock_until
 
-    # ===== v1.3新增：引擎状态持久化 =====
+    # ===== v1.3新增:引擎状态持久化 =====
     def save_engines(self, grid_engines, trend_engines):
-        """保存所有引擎状态到状态文件，重启后可恢复"""
+        """保存所有引擎状态到状态文件,重启后可恢复"""
         grid_data = {}
         for sym, eng in grid_engines.items():
             grid_data[sym] = eng.serialize_state()
@@ -928,15 +928,15 @@ class StateManager:
         self.save()
 
     def load_engines(self, ex):
-        """从状态文件恢复引擎，检测遗留仓位。v1.3新增：24小时过期保护"""
+        """从状态文件恢复引擎,检测遗留仓位。v1.3新增:24小时过期保护"""
         grid_engines = {}
         trend_engines = {}
         engines = self.data.get('engines', {})
 
-        # v1.3新增：引擎状态超过24小时不恢复（防止加载过时数据）
+        # v1.3新增:引擎状态超过24小时不恢复(防止加载过时数据)
         saved_at = engines.get('saved_at', 0)
         if saved_at > 0 and (time.time() - saved_at) > 86400:
-            log(f"[⚠️ 引擎状态过期] 保存于{time.strftime('%m/%d %H:%M', time.localtime(saved_at))}，超过24小时，跳过恢复")
+            log(f"[⚠️ 引擎状态过期] 保存于{time.strftime('%m/%d %H:%M', time.localtime(saved_at))},超过24小时,跳过恢复")
             return {}, {}
         if not engines:
             return {}, {}
@@ -996,18 +996,18 @@ def main():
     balance = sm.get_balance()
     log(f"USDT余额: ${balance:.2f}")
 
-    # v1.3新增：尝试从状态文件恢复引擎（防止重启丢失仓位）
+    # v1.3新增:尝试从状态文件恢复引擎(防止重启丢失仓位)
     grid_engines, trend_engines = sm.load_engines(ex)
     if grid_engines or trend_engines:
-        log(f"[🔄 引擎恢复完成] 网格引擎{len(grid_engines)}个，趋势引擎{len(trend_engines)}个")
+        log(f"[🔄 引擎恢复完成] 网格引擎{len(grid_engines)}个,趋势引擎{len(trend_engines)}个")
     else:
         grid_engines = {}
         trend_engines = {}
-        log("[🚀 新建引擎] 无历史状态，开始全新运行")
+        log("[🚀 新建引擎] 无历史状态,开始全新运行")
     last_scan = last_save = 0
     last_manual_check = 0
 
-    # v1.1优化3：关联性敞口追踪
+    # v1.1优化3:关联性敞口追踪
     active_correlation_exposure = {}  # {symbol: correlation_weight}
 
     mode_emoji = {
@@ -1020,10 +1020,10 @@ def main():
     while True:
         now = time.time()
 
-        # === v1.1优化2：熔断检查 ===
+        # === v1.1优化2:熔断检查 ===
         circuit_ok, circuit_remaining = _check_circuit_breaker()
         if not circuit_ok:
-            log(f"[💥 熔断中] API异常，还需等待{circuit_remaining}秒")
+            log(f"[💥 熔断中] API异常,还需等待{circuit_remaining}秒")
             time.sleep(30)
             continue
 
@@ -1040,7 +1040,7 @@ def main():
             continue
 
         if sm.loss_streak >= CRASH_LIMIT and sm.market_mode in ("TREND_DOWN", "CRISIS"):
-            log(f"[熊市锁定] 熔断+熊市，等待转势")
+            log(f"[熊市锁定] 熔断+熊市,等待转势")
             time.sleep(60)
             continue
 
@@ -1075,13 +1075,13 @@ def main():
             time.sleep(30)
             continue
 
-        # === 市场扫描（每3分钟）===
+        # === 市场扫描(每3分钟)===
         if now - last_scan >= SCAN_INTERVAL:
             last_scan = now
             sm.check_take_profit(balance)
             sm.save()
 
-            # === v1.2新增功能：更新关联性敞口 ===
+            # === v1.2新增功能:更新关联性敞口 ===
             active_correlation_exposure = {}
             for sym, eng in grid_engines.items():
                 if eng.has_position():
@@ -1118,20 +1118,30 @@ def main():
             sm.market_mode = btc_mode
 
             for sym in list(grid_engines.keys()):
-                if grid_engines[sym]._all_sold:
+                eng = grid_engines[sym]
+                if eng._all_sold:
+                    # v1.3修复：如果还有pending_profit未处理，保留引擎等Phase2或提取
+                    if eng.pending_profit > 0:
+                        available = eng.pending_profit * PROFIT_LOCK
+                        if available >= 11:
+                            # 还有足够利润开Phase2，跳过清理
+                            continue
+                        # 利润不足，提取到已实现盈亏避免丢失
+                        sm.realized_profit += eng.pending_profit
+                        log(f"[⚠️ 利润转移] {sym} pending_profit=${eng.pending_profit:.2f} → realized_profit")
                     log(f"[引擎清理] {sym} 所有格已平，移除引擎")
-                    del grid_engines[sym]
+                    del grid_engines[sym]        
             for sym in list(trend_engines.keys()):
                 if trend_engines[sym].position is None:
                     del trend_engines[sym]
 
             if is_extreme_hour():
-                log(f"[⏰极端时段] 北京时间22:00-02:00，暂停开仓")
+                log(f"[⏰极端时段] 北京时间22:00-02:00,暂停开仓")
                 buy_list = []
             else:
-                # === v1.2新增功能：关联性过滤 ===
+                # === v1.2新增功能:关联性过滤 ===
                 def calc_total_correlation_exposure():
-                    """计算当前关联性总敞口（以BTC=1为基准）"""
+                    """计算当前关联性总敞口(以BTC=1为基准)"""
                     total = sum(active_correlation_exposure.values())
                     return total
 
@@ -1157,8 +1167,8 @@ def main():
                 conf = info.get('confidence', 0.5)
                 conf_factor = 1.0 + (conf - 0.6) * 1.5
 
-                # v1.1优化3：关联性降仓
-                # BTC熊市时，高度相关币（ETH/BNB）上限0.3，中度相关（SOL/AVAX）上限0.5
+                # v1.1优化3:关联性降仓
+                # BTC熊市时,高度相关币(ETH/BNB)上限0.3,中度相关(SOL/AVAX)上限0.5
                 corr = CORRELATION_WITH_BTC.get(sym, 0.5) if sym else 0.5
                 btc_factor = 1.0
                 if btc_mode == "TREND_DOWN" and btc_conf >= 0.7:
@@ -1169,14 +1179,14 @@ def main():
                     else:  # XRP等低相关
                         btc_factor = 0.8
 
-                # v1.1优化3：关联性总敞口检查
-                # 如果已持有高相关币，新开仓进一步降权
+                # v1.1优化3:关联性总敞口检查
+                # 如果已持有高相关币,新开仓进一步降权
                 sym_corr_exp = active_correlation_exposure.get(sym, 0) if sym else 0
-                if sym_corr_exp >= 0.85:  # 已持有高相关币，再开同档币
+                if sym_corr_exp >= 0.85:  # 已持有高相关币,再开同档币
                     btc_factor *= 0.5
 
-                # v1.2新增：总关联性敞口过大时(global exposure)进一步降仓
-                # 例：已开ETH(0.85)+BNB(0.70)+SOL(0.65)=总暴露2.20，再开AVAX(0.60)=2.80
+                # v1.2新增:总关联性敞口过大时(global exposure)进一步降仓
+                # 例:已开ETH(0.85)+BNB(0.70)+SOL(0.65)=总暴露2.20,再开AVAX(0.60)=2.80
                 if total_corr_exp > 2.5:
                     btc_factor *= 0.6
 
@@ -1275,7 +1285,7 @@ def main():
                 f"总投入${total_inv:.2f} | 盈亏${balance-total_inv:.2f} | "
                 f"余额${balance:.2f} | 提取${sm.total_profit_taken:.2f} | 连亏{sm.loss_streak}次")
 
-        # === 实时检查（每20秒）=== v1.3修复：所有异常必须打日志
+        # === 实时检查(每20秒)=== v1.3修复:所有异常必须打日志
         for sym, eng in list(grid_engines.items()):
             try:
                 _check_api_rate_limit()
@@ -1301,7 +1311,7 @@ def main():
         if now - last_save >= SAVE_INTERVAL:
             last_save = now
             sm.save()
-            # v1.3新增：同步保存引擎状态（防止重启丢失）
+            # v1.3新增:同步保存引擎状态(防止重启丢失)
             sm.save_engines(grid_engines, trend_engines)
 
         time.sleep(CHECK_INTERVAL)
