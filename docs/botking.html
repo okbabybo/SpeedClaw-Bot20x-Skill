@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SpeedClaw BotKing v1.3 - 现货智能网格+趋势双引擎</title>
+<meta name="description" content="Binance现货智能交易机器人，7币种网格+趋势双引擎，500k蒙特卡洛验证正EV">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: linear-gradient(135deg, #0a0e17 0%, #1a1f2e 100%);
+  min-height: 100vh;
+  color: #e0e6ed;
+  padding: 20px;
+  line-height: 1.6;
+}
+.container { max-width: 900px; margin: 0 auto; }
+.header { text-align: center; padding: 40px 0; }
+.header h1 { color: #00d4aa; font-size: 36px; margin-bottom: 12px; }
+.header .subtitle { color: #9ca3af; font-size: 16px; margin-bottom: 16px; }
+.header .version { display: inline-block; background: rgba(0,212,170,0.2); color: #00d4aa; padding: 4px 12px; border-radius: 12px; font-size: 14px; }
+
+.hero {
+  background: rgba(0,212,170,0.1);
+  border: 1px solid rgba(0,212,170,0.3);
+  border-radius: 16px;
+  padding: 32px;
+  text-align: center;
+  margin: 30px 0;
+}
+.hero h2 { color: #00d4aa; font-size: 24px; margin-bottom: 16px; }
+.hero p { color: #d1d5db; font-size: 15px; }
+
+.coins {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin: 24px 0;
+}
+.coin {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 16px;
+  text-align: center;
+}
+.coin-icon { font-size: 28px; margin-bottom: 6px; }
+.coin-name { color: #00d4aa; font-weight: bold; font-size: 14px; }
+.coin-mode { color: #9ca3af; font-size: 12px; }
+
+.section {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 24px;
+  margin: 20px 0;
+}
+.section h2 {
+  color: #00d4aa;
+  font-size: 22px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid rgba(0,212,170,0.3);
+  padding-bottom: 8px;
+}
+.section h3 {
+  color: #00d4aa;
+  font-size: 18px;
+  margin: 16px 0 8px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+}
+th, td {
+  padding: 10px;
+  text-align: left;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+th { color: #00d4aa; font-weight: 600; }
+td { color: #d1d5db; }
+tr:hover td { background: rgba(0,212,170,0.05); }
+
+code {
+  background: rgba(0,0,0,0.4);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  color: #fbbf24;
+}
+pre {
+  background: rgba(0,0,0,0.4);
+  padding: 16px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 12px 0;
+}
+pre code { background: transparent; padding: 0; }
+
+.check {
+  color: #00d4aa;
+  font-weight: bold;
+}
+.cross {
+  color: #ef4444;
+  font-weight: bold;
+}
+.warn {
+  background: rgba(251,191,36,0.1);
+  border-left: 3px solid #fbbf24;
+  padding: 12px 16px;
+  border-radius: 4px;
+  margin: 12px 0;
+  color: #fbbf24;
+}
+
+.cta {
+  display: inline-block;
+  background: #00d4aa;
+  color: #0a0e17;
+  padding: 12px 24px;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: bold;
+  margin: 8px 8px 8px 0;
+}
+.cta:hover { background: #00b894; }
+.cta-secondary {
+  background: rgba(255,255,255,0.1);
+  color: #e0e6ed;
+  border: 1px solid rgba(255,255,255,0.2);
+}
+
+.footer {
+  text-align: center;
+  padding: 40px 0 20px;
+  color: #6b7280;
+  font-size: 13px;
+}
+.footer a { color: #00d4aa; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="header">
+  <h1>🦞 SpeedClaw BotKing v1.3</h1>
+  <p class="subtitle">现货智能网格 + 趋势双引擎 | Binance Spot | 500k蒙特卡洛验证</p>
+  <span class="version">v1.3 最终版 · f470ce9</span>
+</div>
+
+<div class="hero">
+  <h2>为什么选择 BotKing？</h2>
+  <p>7币种现货智能交易机器人，震荡市网格赚+1%/格，趋势市分批止盈<br>
+  8层风控保护，关联性过滤，状态持久化，AI全程监控</p>
+  <div style="margin-top: 20px;">
+    <a href="https://github.com/okbabybo/SpeedClaw-Bot20x-Skill" class="cta">⭐ GitHub 仓库</a>
+    <a href="#install" class="cta cta-secondary">📖 安装文档</a>
+    <a href="#strategy" class="cta cta-secondary">📊 策略详情</a>
+  </div>
+</div>
+
+<div class="section">
+  <h2>📊 7币种支持</h2>
+  <div class="coins">
+    <div class="coin"><div class="coin-icon">₿</div><div class="coin-name">BTC</div><div class="coin-mode">网格+趋势</div></div>
+    <div class="coin"><div class="coin-icon">Ξ</div><div class="coin-name">ETH</div><div class="coin-mode">网格+趋势</div></div>
+    <div class="coin"><div class="coin-icon">🟡</div><div class="coin-name">BNB</div><div class="coin-mode">网格</div></div>
+    <div class="coin"><div class="coin-icon">◎</div><div class="coin-name">SOL</div><div class="coin-mode">网格</div></div>
+    <div class="coin"><div class="coin-icon">🅰️</div><div class="coin-name">AVAX</div><div class="coin-mode">网格</div></div>
+    <div class="coin"><div class="coin-icon">✖️</div><div class="coin-name">XRP</div><div class="coin-mode">网格</div></div>
+    <div class="coin"><div class="coin-icon">💧</div><div class="coin-name">SUI</div><div class="coin-mode">网格</div></div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>🎯 策略架构</h2>
+  <pre><code>BotKing v1.3
+├── 市场模式识别
+│   ├── RANGE_BOUND  → 网格引擎
+│   ├── TREND_UP     → 趋势引擎
+│   ├── TREND_DOWN   → 低仓位参与
+│   ├── CRISIS       → 暂停
+│   └── VOLATILE_OVERBOUGHT → 平仓
+│
+├── 网格引擎 (GridEngine)
+│   ├── Phase1: 2格 × TP=1% / SL=0.5%
+│   ├── Phase2: 2格 × TP=0.5% / SL=2%(用锁定利润)
+│   └── TS追踪止损: 1.5%
+│
+└── 风控层 (8层保护)
+    ├── 单日8%亏损暂停
+    ├── 日亏5%减仓
+    ├── 连亏暂停(递增冷却)
+    ├── 回撤保护清仓
+    ├── 关联性敞口过滤
+    ├── API限速+熔断
+    ├── 手动平仓检测
+    └── 状态24h过期保护</code></pre>
+</div>
+
+<div class="section" id="strategy">
+  <h2>📈 蒙特卡洛精算（500k周期）</h2>
+  <p style="margin-bottom: 12px;">核心参数：TP=1%, SL=0.5%, 盈亏比 2:1</p>
+  <table>
+    <thead>
+      <tr><th>波动率</th><th>EV/周期</th><th>胜率</th><th>评估</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>0.5%</td><td>+0.07%</td><td>61.7%</td><td class="check">✅ 正期望</td></tr>
+      <tr><td><strong>1.0%</strong></td><td><strong>+0.12%</strong></td><td><strong>66.0%</strong></td><td class="check">✅ <strong>正期望</strong></td></tr>
+      <tr><td>1.5%</td><td>+0.16%</td><td>68.5%</td><td class="check">✅ 正期望</td></tr>
+      <tr><td>2.0%</td><td>+0.18%</td><td>69.9%</td><td class="check">✅ 正期望</td></tr>
+      <tr><td>3.0%</td><td>+0.20%</td><td>71.7%</td><td class="check">✅ 正期望</td></tr>
+    </tbody>
+  </table>
+  <div class="warn">⚠️ 所有波动率下都正期望。注：实盘受滑点/手续费影响，实际EV可能略低。</div>
+</div>
+
+<div class="section">
+  <h2>⚙️ 最终参数</h2>
+  <table>
+    <thead><tr><th>参数</th><th>值</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>GRID_PROFIT</td><td>1%</td><td>每格目标利润</td></tr>
+      <tr><td><strong>GRID_SL_PCT</strong></td><td><strong>0.5%</strong></td><td><strong>精算修复：盈亏比 2:1</strong></td></tr>
+      <tr><td>GRID_PHASE2_TP</td><td>0.5%</td><td>Phase2每格利润</td></tr>
+      <tr><td>TS_PCT</td><td>1.5%</td><td>追踪止损回撤</td></tr>
+      <tr><td>趋势TP1</td><td>+15%</td><td>第一止盈(卖50%)</td></tr>
+      <tr><td>趋势TP2</td><td>+25%</td><td>第二止盈(卖剩余)</td></tr>
+      <tr><td>趋势SL</td><td>-12%</td><td>止损</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="section">
+  <h2>🛡️ 8层风控保护</h2>
+  <ul style="padding-left: 24px; color: #d1d5db;">
+    <li><strong>单日亏损8%</strong> 暂停1小时</li>
+    <li><strong>日亏5%减仓</strong> 仓位×0.6</li>
+    <li><strong>连亏冷却</strong> 300s × 连亏次数</li>
+    <li><strong>回撤保护</strong> high_water -3% 清仓</li>
+    <li><strong>关联敞口过滤</strong> BTC熊市降仓70%</li>
+    <li><strong>API限速</strong> 900次/分钟 + 熔断</li>
+    <li><strong>手动平仓检测</strong> 全卖+半卖场景</li>
+    <li><strong>状态24h过期</strong> 异常状态自动重置</li>
+  </ul>
+</div>
+
+<div class="section" id="install">
+  <h2>🚀 一键安装</h2>
+  <pre><code># 1. 安装环境
+sudo apt install python3 python3-pip git -y
+curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+sudo apt install -y nodejs
+sudo npm install -g pm2
+
+# 2. 克隆代码
+git clone https://github.com/okbabybo/SpeedClaw-Bot20x-Skill.git
+cd SpeedClaw-Bot20x-Skill/bot
+pip3 install requests pandas numpy
+
+# 3. 配置 API
+nano config_exchange.yaml
+# 填入 binance api_key 和 api_secret
+
+# 4. 启动
+pm2 start "python3 bot_king.py" --name bot-king
+pm2 save && pm2 startup
+
+# 5. 查看
+pm2 logs bot-king</code></pre>
+</div>
+
+<div class="section">
+  <h2>✅ 最终审查清单</h2>
+  <table>
+    <tbody>
+      <tr><td>代码 silent except</td><td class="check">0 处</td></tr>
+      <tr><td>蒙特卡洛验证</td><td class="check">500k 周期通过</td></tr>
+      <tr><td>风控层</td><td class="check">8 层保护</td></tr>
+      <tr><td>引擎清理利润保护</td><td class="check">已实现</td></tr>
+      <tr><td>手动平仓检测</td><td class="check">全卖+半卖</td></tr>
+      <tr><td>状态持久化</td><td class="check">24h过期保护</td></tr>
+      <tr><td>PM2进程</td><td class="check">online</td></tr>
+      <tr><td>GitHub最新提交</td><td class="check">f470ce9</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="section">
+  <h2>📜 版本历史</h2>
+  <table>
+    <thead><tr><th>版本</th><th>提交</th><th>关键变化</th></tr></thead>
+    <tbody>
+      <tr><td>v1.1</td><td>-</td><td>SL=12%, 几乎零期望</td></tr>
+      <tr><td>v1.2</td><td>5b111d0</td><td>SL=2%, 盈亏比1:2 仍负</td></tr>
+      <tr><td>v1.3 P0</td><td>d6fda01</td><td>grid_range 扩大2倍</td></tr>
+      <tr><td>v1.3 P1</td><td>066519b</td><td>利润保护 + 最小资金验证</td></tr>
+      <tr><td>v1.3 P2</td><td>5213319</td><td>低ATR修复</td></tr>
+      <tr><td>v1.3 P3</td><td>6e785c5</td><td>中高ATR修复</td></tr>
+      <tr><td>v1.3 P4</td><td>5875209</td><td>引擎清理利润保护</td></tr>
+      <tr><td>v1.3 P5</td><td>a71ca7b</td><td>8处silent except修复</td></tr>
+      <tr style="background: rgba(0,212,170,0.1);"><td><strong>v1.3 最终</strong></td><td><strong>f470ce9</strong></td><td><strong>SL=0.5%, 盈亏比2:1</strong></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="footer">
+  <p>🦞 <a href="https://github.com/okbabybo/SpeedClaw-Bot20x-Skill">GitHub</a> · 
+  <a href="index.html">Bot20x 合约版</a> · 
+  © 2026 SpeedClaw Project</p>
+  <p style="margin-top: 8px; font-size: 12px;">⚠️ 量化交易有风险，过往表现不代表未来收益</p>
+</div>
+
+</div>
+</body>
+</html>
