@@ -468,9 +468,15 @@ class GridEngine:
         return False
 
     def check_phased_open(self, cur_price):
+        """Phase2用锁定利润开仓，TP=0.75%。v1.3修复：验证最小资金门槛"""
         now = time.time()
         if self._open_count >= self.max_grids: return
         if self.pending_profit <= 0: return
+        # v1.3新增：验证Phase2最小资金（PROFIT_LOCK=50%后的利润要>=11U才能开仓）
+        available_for_phase2 = self.pending_profit * PROFIT_LOCK
+        if available_for_phase2 < 11:
+            log(f"[跳过Phase2] {self.symbol} 可用利润${available_for_phase2:.2f}<$11门槛")
+            return
         if now - self.last_tp_time < PHASE2_DELAY: return
         if self._open_count < self.phase1_limit: return
         for idx in range(self.max_grids):
@@ -768,6 +774,9 @@ class StateManager:
         self.daily_reset_time = self.data.get('daily_reset_time', 0)
         self.market_mode = "RANGE_BOUND"
         self._daily_start_balance = self.data.get('daily_start_balance', 0)
+        # v1.3新增：追踪真实已实现盈亏（区分充值和策略盈利）
+        self.initial_balance = self.data.get('initial_balance', 0)
+        self.realized_profit = self.data.get('realized_profit', 0)
 
     def _load(self):
         try:
@@ -785,6 +794,8 @@ class StateManager:
             'daily_loss': self.daily_loss,
             'daily_reset_time': self.daily_reset_time,
             'daily_start_balance': self.data.get('daily_start_balance', self.high_water if self.high_water > 0 else 0),
+            'initial_balance': self.initial_balance,
+            'realized_profit': self.realized_profit,
             'saved_at': time.time(),
         })
         with open(self.fpath, "w") as f:
@@ -795,6 +806,10 @@ class StateManager:
             _check_api_rate_limit()
             bal = self.ex.get_balance()
             _api_success()
+            # v1.3新增：首次运行时记录initial_balance
+            if self.initial_balance == 0 and bal > 0:
+                self.initial_balance = bal
+                log(f"[💰 初始余额记录] ${bal:.2f}（区分充值与策略盈利）")
             return bal
         except:
             _api_fail()
@@ -866,12 +881,21 @@ class StateManager:
         return True
 
     def check_take_profit(self, balance):
-        if self.high_water > 0 and balance >= self.high_water * 1.20:
-            profit = balance - self.high_water
+        """v1.3修复：基于真实策略盈亏提盈，而非余额（排除充值干扰）"""
+        # 真实盈亏 = 当前余额 - 初始余额 - 已实现盈亏
+        # 这样充值$100不会触发提盈，只有策略真正赚了钱才提盈
+        if self.initial_balance <= 0:
+            return
+        # 真实策略盈亏 = 余额 - 初始余额（排除已提取的利润）
+        true_profit = balance - self.initial_balance - self.realized_profit
+        hwm_with_profit = self.high_water - self.initial_balance
+        if hwm_with_profit > 0 and true_profit >= hwm_with_profit * 1.20:
+            profit = true_profit - hwm_with_profit
             if profit >= 5:
                 take = profit * 0.5
-                log(f"[💰 提盈] 利润${profit:.2f} → 提取${take:.2f} | 新高点${balance:.2f}")
+                log(f"[💰 提盈] 真实利润${profit:.2f} → 提取${take:.2f} | 余额${balance:.2f} | 初始${self.initial_balance:.2f}")
                 self.total_profit_taken += take
+                self.realized_profit += profit  # 更新已实现盈亏
                 self.high_water = balance * 0.9
                 self.save()
         if balance > self.high_water:
