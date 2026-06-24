@@ -1,4 +1,4 @@
-# BotKing Spot - Quick Reference v1.2
+# BotKing Spot - Quick Reference v1.3
 
 ## 启动/停止
 ```bash

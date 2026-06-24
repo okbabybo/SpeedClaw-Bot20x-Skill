@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-SpeedClaw BotKing 现货机器人 v1.1
+SpeedClaw BotKing 现货机器人 v1.3
 混沌龙虾 🦞 — 独立部署版
 
 名称：SpeedClaw BotKing
 类型：现货智能网格+趋势双引擎
 交易所：币安现货 USDT-M
 
-v1.1 优化：
-  P0：网格引擎止损12%→8%，格距0.6%→0.4%，TS激活6%→4%
-  P1：多币关联性敞口检查，防止高相关币种同时重仓
-  P2：API限速处理+熔断机制
-  P3：关联性系数传递到主循环
+v1.3 修复（2026-06-24）：
+  P0-1：网格区间扩大2倍，确保SL在网格范围内
+  P0-2：手动平仓检测增加半卖情况，防止仓位错乱
+  P1-4：引擎状态持久化，重启后自动恢复仓位
+  P1-5：实时检查异常必须打日志，不再静默吞掉
 """
 
 import requests, time, json, yaml, math
@@ -412,7 +412,10 @@ class GridEngine:
         self.last_tp_time = 0
         self._open_count = 0
 
-        grid_range = max(atr * 3, entry_price * GRID_SL_PCT)  # v1.2修复：SL=2%，区间=±2%
+        # v1.3修复：grid_range必须覆盖完整SL区间
+        # SL=2% means price can drop 2% before hitting SL
+        # grid_range must be >= SL distance so SL is WITHIN the grid range
+        grid_range = max(atr * 3, entry_price * GRID_SL_PCT * 2)  # 新：区间扩大2倍确保SL在范围内
         self.upper = entry_price + grid_range / 2
         self.lower = entry_price - grid_range / 2
         self.grid_width = (self.upper - self.lower) / self.max_grids if self.max_grids > 0 else grid_range
@@ -550,7 +553,7 @@ class GridEngine:
         center = (self.upper + self.lower) / 2
         drift = (cur_price - center) / center if center > 0 else 0
         if abs(drift) > 0.25:
-            new_range = max(self.atr * 3, cur_price * GRID_SL_PCT)  # v1.2修复：SL=2%
+            new_range = max(self.atr * 3, cur_price * GRID_SL_PCT * 2)  # v1.3修复：确保SL在范围内
             self.upper = cur_price + new_range / 2
             self.lower = cur_price - new_range / 2
             self.grid_width = (self.upper - self.lower) / self.max_grids
@@ -561,15 +564,80 @@ class GridEngine:
         return any(not p.get('sold') and p['qty'] > 0 for p in self.positions.values())
 
     def detect_manual_close(self, api_qty):
+        """v1.3修复：检测用户手动平仓（包括半卖情况）"""
         total_state_qty = sum(pos['qty'] for pos in self.positions.values()
                              if not pos.get('sold') and pos['qty'] > 0)
-        if api_qty < total_state_qty - 0.00001:
+        if api_qty <= 0 and total_state_qty > 0:
+            # 情况1：完全清空
+            log(f"[⚠️ 手动清仓] {self.symbol} API持仓0，状态记录{total_state_qty}")
             for idx, pos in list(self.positions.items()):
                 if pos.get('sold') or pos['qty'] <= 0: continue
-                log(f"[⚠️ 手动平仓] {self.symbol}格{idx}@{pos['buy_price']:.4f} "
-                    f"(API仅剩{api_qty})")
                 pos['sold'] = True
                 pos['sold_at'] = time.time()
+        elif api_qty < total_state_qty - 0.00001:
+            # 情况2：半卖（新增检测）
+            diff = total_state_qty - api_qty
+            log(f"[⚠️ 手动半卖] {self.symbol} API持仓{api_qty} < 状态{total_state_qty}，差额{diff}")
+            for idx in sorted(self.positions.keys()):
+                pos = self.positions[idx]
+                if pos.get('sold') or pos['qty'] <= 0: continue
+                if api_qty <= 0: break
+                if pos['qty'] <= diff:
+                    diff -= pos['qty']
+                    pos['sold'] = True
+                    pos['sold_at'] = time.time()
+                    log(f"  → 格{idx}完全平掉，qty={pos['qty']}")
+                else:
+                    remaining = pos['qty'] - diff
+                    log(f"  → 格{idx}部分平仓 {pos['qty']}→{remaining}")
+                    pos['qty'] = remaining
+                    diff = 0
+                    break
+            self.position['qty'] = max(0, sum(p['qty'] for p in self.positions.values() if not p.get('sold')))
+
+    def serialize_state(self):
+        """v1.3新增：序列化引擎状态，用于StateManager持久化"""
+        return {
+            'symbol': self.symbol,
+            'entry_price': self.entry_price,
+            'max_grids': self.max_grids,
+            'grid_profit': self.grid_profit,
+            'atr': self.atr,
+            'capital': self.capital,
+            'phase1_limit': self.phase1_limit,
+            'pending_profit': self.pending_profit,
+            'last_tp_time': self.last_tp_time,
+            '_open_count': self._open_count,
+            'upper': self.upper,
+            'lower': self.lower,
+            'grid_width': self.grid_width,
+            'positions': self.positions,
+            'position_qty': self.position['qty'],
+        }
+
+    @staticmethod
+    def from_state(state, ex, sm=None):
+        """v1.3新增：从序列化状态恢复引擎"""
+        eng = GridEngine(
+            symbol=state['symbol'],
+            entry_price=state['entry_price'],
+            grids=state['max_grids'],
+            grid_profit=state['grid_profit'],
+            atr=state['atr'],
+            ex=ex,
+            capital=state['capital'],
+            phase1_limit=state['phase1_limit'],
+            sm=sm
+        )
+        eng.pending_profit = state.get('pending_profit', 0)
+        eng.last_tp_time = state.get('last_tp_time', 0)
+        eng._open_count = state.get('_open_count', 0)
+        eng.upper = state['upper']
+        eng.lower = state['lower']
+        eng.grid_width = state['grid_width']
+        eng.positions = state.get('positions', {})
+        eng.position['qty'] = state.get('position_qty', 0)
+        return eng
 
 class TrendEngine:
     def __init__(self, symbol, ex, sm=None):
@@ -640,6 +708,32 @@ class TrendEngine:
 
         if cur_price <= entry * (1 - SL_PCT):
             self._sell(cur_price, "SL")
+
+    def serialize_state(self):
+        """v1.3新增：序列化引擎状态"""
+        if not self.position:
+            return None
+        return {
+            'symbol': self.symbol,
+            'position': self.position,
+            'entry_price': self.entry_price,
+            'ts_triggered': self.ts_triggered,
+            'ts_price': self.ts_price,
+            'peak_price': self.peak_price,
+        }
+
+    @staticmethod
+    def from_state(state, ex, sm=None):
+        """v1.3新增：从序列化状态恢复引擎"""
+        if not state:
+            return None
+        eng = TrendEngine(symbol=state['symbol'], ex=ex, sm=sm)
+        eng.position = state.get('position')
+        eng.entry_price = state['entry_price']
+        eng.ts_triggered = state.get('ts_triggered', False)
+        eng.ts_price = state.get('ts_price', 0)
+        eng.peak_price = state.get('peak_price', state['entry_price'])
+        return eng
 
     def _sell(self, price, reason):
         if not self.position or self.position['qty'] <= 0: return
@@ -787,14 +881,67 @@ class StateManager:
     def is_locked(self):
         return time.time() < self.lock_until
 
+    # ===== v1.3新增：引擎状态持久化 =====
+    def save_engines(self, grid_engines, trend_engines):
+        """保存所有引擎状态到状态文件，重启后可恢复"""
+        grid_data = {}
+        for sym, eng in grid_engines.items():
+            grid_data[sym] = eng.serialize_state()
+        trend_data = {}
+        for sym, eng in trend_engines.items():
+            trend_data[sym] = eng.serialize_state()
+        self.data['engines'] = {
+            'grids': grid_data,
+            'trends': trend_data,
+            'saved_at': time.time(),
+        }
+        self.save()
+
+    def load_engines(self, ex):
+        """从状态文件恢复引擎，检测遗留仓位。v1.3新增：24小时过期保护"""
+        grid_engines = {}
+        trend_engines = {}
+        engines = self.data.get('engines', {})
+
+        # v1.3新增：引擎状态超过24小时不恢复（防止加载过时数据）
+        saved_at = engines.get('saved_at', 0)
+        if saved_at > 0 and (time.time() - saved_at) > 86400:
+            log(f"[⚠️ 引擎状态过期] 保存于{time.strftime('%m/%d %H:%M', time.localtime(saved_at))}，超过24小时，跳过恢复")
+            return {}, {}
+        if not engines:
+            return {}, {}
+        grid_data = engines.get('grids', {})
+        trend_data = engines.get('trends', {})
+
+        # 恢复网格引擎
+        for sym, state in grid_data.items():
+            try:
+                eng = GridEngine.from_state(state, ex, sm=self)
+                grid_engines[sym] = eng
+                log(f"[🔄 网格引擎恢复] {sym} entry={state['entry_price']} grids={state['max_grids']}")
+            except Exception as e:
+                log(f"[⚠️ 网格引擎恢复失败] {sym}: {e}")
+
+        # 恢复趋势引擎
+        for sym, state in trend_data.items():
+            try:
+                eng = TrendEngine.from_state(state, ex, sm=self)
+                if eng.position and eng.position.get('qty', 0) > 0:
+                    trend_engines[sym] = eng
+                    log(f"[🔄 趋势引擎恢复] {sym} 持仓={eng.position['qty']}")
+            except Exception as e:
+                log(f"[⚠️ 趋势引擎恢复失败] {sym}: {e}")
+
+        return grid_engines, trend_engines
+
 # ===================== 主程序 =====================
 def main():
     global _circuit_broken, _circuit_break_until
 
     log("=" * 70)
-    log("  SpeedClaw BotKing 现货机器人 v1.1 🦞")
+    log("  SpeedClaw BotKing 现货机器人 v1.3 🦞")
     log(f"  币种: {COINS}")
-    log(f"  网格: 2-6格/0.3%-0.6% | 趋势:TP15%/25% | SL:网格8%/趋势12%")
+    log(f"  网格: 2-6格/0.3%-1.5% | 趋势:TP15%/25% | SL:网格2%/趋势12%")
     log(f"  熔断: 连亏3次暂停 | 回撤:>20%清仓 | 日亏:>8%暂停")
     log(f"  API限速: {API_MAX_REQUESTS}次/分钟 | 熔断: 连续{API_CIRCUIT_BREAKER_THRESHOLD}次失败暂停120秒")
     log("=" * 70)
@@ -819,8 +966,14 @@ def main():
     balance = sm.get_balance()
     log(f"USDT余额: ${balance:.2f}")
 
-    grid_engines = {}
-    trend_engines = {}
+    # v1.3新增：尝试从状态文件恢复引擎（防止重启丢失仓位）
+    grid_engines, trend_engines = sm.load_engines(ex)
+    if grid_engines or trend_engines:
+        log(f"[🔄 引擎恢复完成] 网格引擎{len(grid_engines)}个，趋势引擎{len(trend_engines)}个")
+    else:
+        grid_engines = {}
+        trend_engines = {}
+        log("[🚀 新建引擎] 无历史状态，开始全新运行")
     last_scan = last_save = 0
     last_manual_check = 0
 
@@ -1070,24 +1223,34 @@ def main():
                 f"总投入${total_inv:.2f} | 盈亏${balance-total_inv:.2f} | "
                 f"余额${balance:.2f} | 提取${sm.total_profit_taken:.2f} | 连亏{sm.loss_streak}次")
 
-        # === 实时检查（每20秒）===
+        # === 实时检查（每20秒）=== v1.3修复：所有异常必须打日志
         for sym, eng in list(grid_engines.items()):
             try:
+                _check_api_rate_limit()
                 cur = ex.get_price(sym)
+                _api_success()
                 eng.check(cur)
                 eng.check_phased_open(cur)
-            except: pass
+            except Exception as e:
+                _api_fail()
+                log(f"[⚠️ 网格检查异常] {sym}: {e}")
         for sym, eng in list(trend_engines.items()):
             try:
+                _check_api_rate_limit()
                 cur = ex.get_price(sym)
+                _api_success()
                 eng.check(cur)
                 if eng.position is None:
                     del trend_engines[sym]
-            except: pass
+            except Exception as e:
+                _api_fail()
+                log(f"[⚠️ 趋势检查异常] {sym}: {e}")
 
         if now - last_save >= SAVE_INTERVAL:
             last_save = now
             sm.save()
+            # v1.3新增：同步保存引擎状态（防止重启丢失）
+            sm.save_engines(grid_engines, trend_engines)
 
         time.sleep(CHECK_INTERVAL)
 
