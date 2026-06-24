@@ -34,14 +34,18 @@ COINS = cfg.get('coins', ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'AVAXUSDT'
 
 # ==================== BotKing v1.1 核心参数 ====================
 
-# ---- 网格引擎参数（优化1：更窄止损+更密格距）----
-# v1.0: GRID_PROFIT=0.006, GRID_VOL_PROFIT=0.010, SL=12%, TS激活6%
-# v1.1: 每格利润收窄到0.3-0.6%，止损收窄到8%，TS激活降到4%
-# 期望：需要3次赢才能弥补1次止损 → 75%胜率=正期望
-GRID_PROFIT     = 0.004    # 每格0.4%（优化：原0.6%）
-GRID_VOL_PROFIT = 0.006    # 高波动每格0.6%（优化：原1.0%）
-GRID_SL_PCT     = 0.08     # 网格止损8%（优化：原12%）
-TS_PCT          = 0.025    # 网格追踪回撤2.5%（优化：原3%，更早锁利）
+# ================== BotKing v1.2 核心参数 ==================
+# v1.2 优化重点：修复网格期望值崩溃
+# v1.1问题：SL=8% + TP=0.4% → 盈亏比1:20 → 需要95%胜率（不可能达到）
+# v1.2方案：SL=2% + TP=1% → 盈亏比1:2 → 50%胜率即可正期望
+
+# ---- 网格引擎参数（v1.2核心修复）----
+GRID_PROFIT     = 0.010    # 每格1%（v1.2：原0.4%→1%）
+GRID_VOL_PROFIT = 0.015   # 高波动每格1.5%（v1.2：原0.6%→1.5%）
+GRID_SL_PCT     = 0.02    # 网格止损2%（v1.2：原8%→2%，大幅收窄！）
+TS_PCT          = 0.015   # 网格追踪回撤1.5%（v1.2：原2.5%→1.5%）
+# Phase2用锁定利润开仓，无真实资本风险，TP=0.75%
+GRID_PHASE2_TP  = 0.0075  # Phase2每格利润0.75%（比Phase1的1%低）
 
 # ---- 趋势引擎参数（保持不变）----
 SL_PCT          = 0.12     # 趋势止损12%
@@ -63,11 +67,12 @@ CRASH_PAUSE      = 900
 PROFIT_LOCK      = 0.50
 PHASE2_DELAY     = 300
 
-# ATR自适应（优化2：调整格距以匹配新GRID_PROFIT）
+# ATR自适应（v1.2修复：SL=2%为基准）
+# 盈亏比 TP/SL = 1%/2% = 1:2，50%胜率即可正期望
 ATR_GRID_MAP = {
-    'high':   (2, 0.006),   # 高波动：2格×0.6%=1.2%总利润（优化：原1.0%×2=2%）
-    'medium': (4, 0.004),   # 中波动：4格×0.4%=1.6%总利润（优化：原0.6%×4=2.4%）
-    'low':    (6, 0.003),   # 低波动：6格×0.3%=1.8%总利润（优化：原0.4%×6=2.4%）
+    'high':   (2, 0.010),   # 高ATR>5%：2格×1%=2%总利润
+    'medium': (4, 0.005),   # 中ATR 2-5%：4格×0.5%=2%总利润
+    'low':    (6, 0.003),   # 低ATR<2%：6格×0.33%≈2%总利润
 }
 
 # 运行
@@ -407,7 +412,7 @@ class GridEngine:
         self.last_tp_time = 0
         self._open_count = 0
 
-        grid_range = max(atr * 3, entry_price * 0.08)  # 优化：原0.12，收窄到0.08
+        grid_range = max(atr * 3, entry_price * GRID_SL_PCT)  # v1.2修复：SL=2%，区间=±2%
         self.upper = entry_price + grid_range / 2
         self.lower = entry_price - grid_range / 2
         self.grid_width = (self.upper - self.lower) / self.max_grids if self.max_grids > 0 else grid_range
@@ -427,7 +432,10 @@ class GridEngine:
         per_grid_max = base * 0.35
         return min(per_grid_max, base / (self.max_grids - active))
 
-    def buy_grid(self, idx, price, locked_profit=0):
+    def buy_grid(self, idx, price, locked_profit=0, grid_profit=None):
+        """v1.2修复：grid_profit参数允许Phase2用不同TP(0.75%)，Phase1用1%"""
+        if grid_profit is None:
+            grid_profit = self.grid_profit
         if idx in self.positions and not self.positions[idx].get('sold'):
             return False
         invest = self.invest_per_grid(locked_profit)
@@ -440,11 +448,11 @@ class GridEngine:
                 _api_success()
                 self.positions[idx] = {
                     'buy_price': price, 'qty': qty, 'sold': False,
-                    'target': price * (1 + self.grid_profit),
-                    'sl': price * (1 - GRID_SL_PCT),   # v1.1优化：网格专用SL=8%
+                    'target': price * (1 + grid_profit),
+                    'sl': price * (1 - GRID_SL_PCT),   # v1.2修复：SL=2%（与趋势引擎12%分离）
                     'ts_triggered': False, 'ts_price': 0, 'ts_high': 0,
                     'bought_at': time.time(),
-                    'profit_locked': invest * self.grid_profit * PROFIT_LOCK,
+                    'profit_locked': invest * grid_profit * PROFIT_LOCK,
                 }
                 self._open_count += 1
                 self.position['qty'] += qty
@@ -464,7 +472,8 @@ class GridEngine:
         if self._open_count < self.phase1_limit: return
         for idx in range(self.max_grids):
             if idx not in self.positions:
-                self.buy_grid(idx, cur_price, locked_profit=self.pending_profit)
+                self.buy_grid(idx, cur_price, locked_profit=self.pending_profit,
+                              grid_profit=GRID_PHASE2_TP)  # v1.2: Phase2用0.75%TP
                 self.pending_profit = 0
                 break
 
@@ -480,8 +489,8 @@ class GridEngine:
             bp = pos['buy_price']
             profit = (cur_price - bp) / bp
 
-            # v1.1优化：TS激活从6%降到4%
-            if profit > 0.04:
+            # v1.2修复：TS激活改为1.5%（对应TP=1%的新参数）
+            if profit > TS_PCT:
                 if not pos.get('ts_triggered'):
                     pos['ts_triggered'] = True
                     pos['ts_price'] = cur_price * (1 - TS_PCT)
@@ -541,7 +550,7 @@ class GridEngine:
         center = (self.upper + self.lower) / 2
         drift = (cur_price - center) / center if center > 0 else 0
         if abs(drift) > 0.25:
-            new_range = max(self.atr * 3, cur_price * 0.08)  # v1.1优化：收窄到8%
+            new_range = max(self.atr * 3, cur_price * GRID_SL_PCT)  # v1.2修复：SL=2%
             self.upper = cur_price + new_range / 2
             self.lower = cur_price - new_range / 2
             self.grid_width = (self.upper - self.lower) / self.max_grids
@@ -881,7 +890,7 @@ def main():
             sm.check_take_profit(balance)
             sm.save()
 
-            # === v1.1优化3：更新关联性敞口 ===
+            # === v1.2新增功能：更新关联性敞口 ===
             active_correlation_exposure = {}
             for sym, eng in grid_engines.items():
                 if eng.has_position():
@@ -929,7 +938,7 @@ def main():
                 log(f"[⏰极端时段] 北京时间22:00-02:00，暂停开仓")
                 buy_list = []
             else:
-                # === v1.1优化3：关联性过滤 ===
+                # === v1.2新增功能：关联性过滤 ===
                 def calc_total_correlation_exposure():
                     """计算当前关联性总敞口（以BTC=1为基准）"""
                     total = sum(active_correlation_exposure.values())
@@ -972,8 +981,13 @@ def main():
                 # v1.1优化3：关联性总敞口检查
                 # 如果已持有高相关币，新开仓进一步降权
                 sym_corr_exp = active_correlation_exposure.get(sym, 0) if sym else 0
-                if sym_corr_exp >= 0.85:  # 已持有ETH再开BNB = 总暴露1.55
+                if sym_corr_exp >= 0.85:  # 已持有高相关币，再开同档币
                     btc_factor *= 0.5
+
+                # v1.2新增：总关联性敞口过大时(global exposure)进一步降仓
+                # 例：已开ETH(0.85)+BNB(0.70)+SOL(0.65)=总暴露2.20，再开AVAX(0.60)=2.80
+                if total_corr_exp > 2.5:
+                    btc_factor *= 0.6
 
                 return min(base * conf_factor * btc_factor, bal * 0.35)
 

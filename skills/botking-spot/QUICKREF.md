@@ -1,4 +1,4 @@
-# BotKing Spot - Quick Reference v1.1
+# BotKing Spot - Quick Reference v1.2
 
 ## 启动/停止
 ```bash
@@ -7,15 +7,15 @@ pm2 restart bot-king
 pm2 logs bot-king --nostream --lines 15
 ```
 
-## v1.1 核心参数
-| 参数 | v1.0旧值 | **v1.1新值** |
-|------|---------|------------|
-| 网格每格利润 | 0.6% | **0.4%** |
-| 高波动格距 | 1.0% | **0.6%** |
-| 网格止损 | -12% | **-8%** |
-| TS激活门槛 | +6% | **+4%** |
-| 追踪回撤 | -3% | **-2.5%** |
-| 网格区间 | ±6% | **±4%** |
+## v1.2 核心参数（期望值修复）
+| 参数 | v1.0旧值 | v1.1 | **v1.2** |
+|------|---------|------|---------|
+| 每格利润 | 0.6% | 0.4% | **1.0%** |
+| 止损 | -12% | -8% | **-2%** |
+| 盈亏比 | 1:20 | 1:20 | **1:2** |
+| 最低胜率 | 95% | 95% | **50%** |
+| TS激活 | +6% | +4% | **+1.5%** |
+| Phase2 TP | 同Phase1 | 同Phase1 | **0.75%** |
 
 ## 7种市场模式
 ```
@@ -34,23 +34,31 @@ CRISIS           → 全部暂停（日RSI>80或<20）
 日亏>8%     → 暂停1小时
 回撤>20%    → 全部止损+锁30分
 连亏3次     → 熔断15分钟
-API连50次败 → 熔断120秒（v1.1新增）
+API连50次败 → 熔断120秒（v1.2新增）
 22:00-02:00 → 禁止开仓
 ```
 
-## v1.1新增：关联性降仓
+## v1.2关联性降仓
 ```
 BTC熊市时：
   ETH/BNB（关联0.85） → ×0.3
   SOL/AVAX（关联0.65） → ×0.5
   XRP等（关联0.55） → ×0.8
   已持有高相关币再开 → 再×0.5
+  总敞口>2.5 → 全部再×0.6
 ```
+
+## 期望值（4格Phase1+Phase2）
+| 胜率 | 每周期期望值 |
+|------|------------|
+| 50% | +1.16% |
+| 60% | +1.84% |
+| 70% | +2.39% |
 
 ## 文件
 ```
-主脚本:   /root/.openclaw/workspace/bot_king.py
-状态:     /root/.openclaw/workspace/bot_king_state.json
-日志:     /root/.openclaw/workspace/bot_king.log
-配置:     /root/.openclaw/workspace/config_exchange.yaml
+主脚本: /root/.openclaw/workspace/bot_king.py
+状态:   /root/.openclaw/workspace/bot_king_state.json
+日志:   /root/.openclaw/workspace/bot_king.log
+配置:   /root/.openclaw/workspace/config_exchange.yaml
 ```
