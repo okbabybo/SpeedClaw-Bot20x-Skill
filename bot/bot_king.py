@@ -481,9 +481,13 @@ class GridEngine:
         if self._open_count < self.phase1_limit: return
         for idx in range(self.max_grids):
             if idx not in self.positions:
-                self.buy_grid(idx, cur_price, locked_profit=self.pending_profit,
+                # v1.3修复：必须等buy_grid成功才清零pending_profit
+                success = self.buy_grid(idx, cur_price, locked_profit=self.pending_profit,
                               grid_profit=GRID_PHASE2_TP)  # v1.2: Phase2用0.75%TP
-                self.pending_profit = 0
+                if success:
+                    self.pending_profit = 0
+                else:
+                    log(f"[⚠️ Phase2开仓失败] {self.symbol} 利润暂未消耗, 下次重试")
                 break
 
     def _round_qty(self, qty):
@@ -498,16 +502,17 @@ class GridEngine:
             bp = pos['buy_price']
             profit = (cur_price - bp) / bp
 
-            # v1.2修复：TS激活改为1.5%（对应TP=1%的新参数）
+            # v1.3修复：TS激活时必须保本（ts_price = max(entry, cur_price*(1-TS_PCT))
             if profit > TS_PCT:
                 if not pos.get('ts_triggered'):
                     pos['ts_triggered'] = True
-                    pos['ts_price'] = cur_price * (1 - TS_PCT)
                     pos['ts_high'] = cur_price
+                    # 保本优先：ts_price = max(entry_price, cur_price*(1-TS_PCT))
+                    pos['ts_price'] = max(bp, cur_price * (1 - TS_PCT))
                     log(f"[TS激活] {self.symbol}格{idx}@{cur_price:.4f} 触发={pos['ts_price']:.4f}")
                 elif cur_price > pos.get('ts_high', 0):
                     pos['ts_high'] = cur_price
-                    pos['ts_price'] = cur_price * (1 - TS_PCT)
+                    pos['ts_price'] = max(bp, cur_price * (1 - TS_PCT))
 
             if pos.get('ts_triggered') and cur_price <= pos['ts_price']:
                 self._sell_grid(idx, cur_price, "TS")
@@ -678,9 +683,10 @@ class TrendEngine:
 
         if profit > 0.15 and not self.ts_triggered:
             self.ts_triggered = True
-            self.ts_price = cur_price * (1 - TS_TREND_PCT)
+            # v1.3修复：保本优先 ts_price = max(entry, cur_price*(1-TS_TREND_PCT))
+            self.ts_price = max(entry, cur_price * (1 - TS_TREND_PCT))
         elif self.ts_triggered and cur_price > entry * 1.15:
-            new_ts = cur_price * (1 - TS_TREND_PCT)
+            new_ts = max(entry, cur_price * (1 - TS_TREND_PCT))
             if new_ts > self.ts_price: self.ts_price = new_ts
 
         if self.ts_triggered and cur_price <= self.ts_price:
