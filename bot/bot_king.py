@@ -1045,15 +1045,23 @@ def main():
         if not sm.check_drawdown_protection(balance):
             for eng in list(grid_engines.values()):
                 try:
+                    _check_api_rate_limit()
                     cur = ex.get_price(eng.symbol)
+                    _api_success()
                     for idx in list(eng.positions.keys()):
                         eng._sell_grid(idx, cur, "回撤保护")
-                except: pass
+                except Exception as e:
+                    _api_fail()
+                    log(f"[⚠️ 回撤保护卖出失败] {eng.symbol}: {e}")
             for eng in list(trend_engines.values()):
                 try:
+                    _check_api_rate_limit()
                     cur = ex.get_price(eng.symbol)
+                    _api_success()
                     if eng.position: eng._sell(cur, "回撤保护")
-                except: pass
+                except Exception as e:
+                    _api_fail()
+                    log(f"[⚠️ 回撤保护趋势卖出失败] {eng.symbol}: {e}")
             time.sleep(30)
             continue
 
@@ -1201,31 +1209,45 @@ def main():
                 if info['mode'] in ("VOLATILE_OVERBOUGHT",):
                     if sym in grid_engines:
                         try:
+                            _check_api_rate_limit()
                             cur = info['price']
+                            _api_success()
                             for idx in list(grid_engines[sym].positions.keys()):
                                 grid_engines[sym]._sell_grid(idx, cur, f"市场-{info['mode']}")
                             sm.record_win()
-                        except: pass
+                        except Exception as e:
+                            _api_fail()
+                            log(f"[⚠️ 超买网格卖出失败] {sym}: {e}")
                     if sym in trend_engines and trend_engines[sym].position:
                         try:
+                            _check_api_rate_limit()
                             cur = info['price']
+                            _api_success()
                             trend_engines[sym]._sell(cur, f"市场-{info['mode']}")
                             sm.record_win()
-                        except: pass
+                        except Exception as e:
+                            _api_fail()
+                            log(f"[⚠️ 超买趋势卖出失败] {sym}: {e}")
                 elif info['mode'] in ("CRISIS", "TREND_DOWN"):
                     if sym in grid_engines:
                         try:
+                            _check_api_rate_limit()
                             cur = info['price']
                             for idx in list(grid_engines[sym].positions.keys()):
                                 grid_engines[sym]._sell_grid(idx, cur, f"市场-{info['mode']}")
                             sm.record_loss()
-                        except: pass
+                        except Exception as e:
+                            _api_fail()
+                            log(f"[⚠️ 市场信号网格卖出失败] {sym}: {e}")
                     if sym in trend_engines and trend_engines[sym].position:
                         try:
+                            _check_api_rate_limit()
                             cur = info['price']
                             trend_engines[sym]._sell(cur, f"市场-{info['mode']}")
                             sm.record_loss()
-                        except: pass
+                        except Exception as e:
+                            _api_fail()
+                            log(f"[⚠️ 市场信号趋势卖出失败] {sym}: {e}")
 
             if now - last_manual_check >= 300:
                 last_manual_check = now
