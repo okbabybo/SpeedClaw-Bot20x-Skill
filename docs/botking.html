@@ -159,7 +159,7 @@ pre code { background: transparent; padding: 0; }
 .steps {
   counter-reset: step;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 12px;
   margin: 16px 0;
 }
@@ -169,7 +169,7 @@ pre code { background: transparent; padding: 0; }
   padding: 16px;
   background: rgba(0,0,0,0.2);
   border-radius: 8px;
-  min-height: 130px;
+  min-height: 140px;
   border-left: 3px solid #00d4aa;
 }
 .step::before {
@@ -191,7 +191,10 @@ pre code { background: transparent; padding: 0; }
 .step-title { color: #00d4aa; font-weight: bold; font-size: 15px; margin-bottom: 6px; line-height: 1.3; }
 .step-desc { color: #9ca3af; font-size: 13px; line-height: 1.5; }
 
-@media (max-width: 768px) {
+@media (max-width: 900px) {
+  .steps { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 600px) {
   .steps { grid-template-columns: 1fr; }
   .step { min-height: auto; }
 }
