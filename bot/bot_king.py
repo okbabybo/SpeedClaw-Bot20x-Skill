@@ -30,7 +30,7 @@ LOG_FILE  = cfg.get('log_file', '/root/.openclaw/workspace/bot_king.log')
 STATE_DIR = cfg.get('state_dir', '/root/.openclaw/workspace/')
 STATE_FILE = STATE_DIR + "bot_king_state.json"
 
-COINS = cfg.get('coins', ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'AVAXUSDT', 'XRPUSDT'])
+COINS = cfg.get('coins', ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'AVAXUSDT', 'XRPUSDT', 'TONUSDT'])
 
 # ==================== BotKing v1.1 核心参数 ====================
 
@@ -183,6 +183,7 @@ CORRELATION_WITH_BTC = {
     "SOLUSDT": 0.65,  # 中度相关
     "AVAXUSDT": 0.60, # 中低相关
     "XRPUSDT": 0.55,  # 低相关
+    "TONUSDT": 0.45,  # 独立品种
     "SUIUSDT": 0.50,
 }
 
@@ -415,7 +416,7 @@ class GridEngine:
         self._open_count = 0
 
         # v1.3修复:grid_range必须覆盖完整SL区间
-        # SL=2% means price can drop 2% before hitting SL
+        # v1.3最终:SL=0.5% means price can drop 0.5% before hitting SL
         # grid_range must be >= SL distance so SL is WITHIN the grid range
         grid_range = max(atr * 3, entry_price * GRID_SL_PCT * 2)  # 新:区间扩大2倍确保SL在范围内
         self.upper = entry_price + grid_range / 2
@@ -454,7 +455,7 @@ class GridEngine:
                 self.positions[idx] = {
                     'buy_price': price, 'qty': qty, 'sold': False,
                     'target': price * (1 + grid_profit),
-                    'sl': price * (1 - GRID_SL_PCT),   # v1.2修复:SL=2%(与趋势引擎12%分离)
+                    'sl': price * (1 - GRID_SL_PCT),   # v1.3最终:SL=0.5%(与趋势引擎12%分离)
                     'ts_triggered': False, 'ts_price': 0, 'ts_high': 0,
                     'bought_at': time.time(),
                     'profit_locked': invest * grid_profit * PROFIT_LOCK,
@@ -493,7 +494,7 @@ class GridEngine:
                 break
 
     def _round_qty(self, qty):
-        rules = {'BTCUSDT':4,'ETHUSDT':4,'BNBUSDT':2,'SOLUSDT':1,'AVAXUSDT':2,'XRPUSDT':1}
+        rules = {'BTCUSDT':4,'ETHUSDT':4,'BNBUSDT':2,'SOLUSDT':1,'AVAXUSDT':2,'XRPUSDT':1,'TONUSDT':1}
         d = rules.get(self.symbol, 4)
         return math.floor(qty * 10**d) / 10**d
 
