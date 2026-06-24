@@ -232,8 +232,8 @@ def get_fear_greed():
         _last_fear_greed = int(data.get('value', 50))
         _last_fg_fetch = now
         log(f"[宏观] Fear & Greed: {_last_fear_greed} ({data.get('value_classification','')})")
-    except:
-        log(f"[宏观] Fear & Greed获取失败,使用默认值50")
+    except Exception as e:
+        log(f"[⚠️ 宏观API失败] {e}，使用默认值50")
     return _last_fear_greed
 
 def is_extreme_hour():
@@ -247,8 +247,9 @@ def detect_market_mode(symbol, ex):
     try:
         c15m = ex.get_klines(symbol, "15m", 60)
         _api_success()
-    except:
+    except Exception as e:
         _api_fail()
+        log(f"[⚠️ 15mK线获取失败] {symbol}: {e}，降级为RANGE_BOUND")
         return "RANGE_BOUND", {'price': 0, 'rsi': 50, 'mode': 'RANGE_BOUND',
                                'grids': 4, 'grid_profit': GRID_PROFIT, 'atr': 0,
                                'trend_bias': 0.3, 'confidence': 0, 'correlation': CORRELATION_WITH_BTC.get(symbol, 0.5)}
@@ -257,8 +258,9 @@ def detect_market_mode(symbol, ex):
         c4h  = ex.get_klines(symbol, "4h",  100)
         c1d  = ex.get_klines(symbol, "1d",  50)
         _api_success()
-    except:
+    except Exception as e:
         _api_fail()
+        log(f"[⚠️ 1h/4h/1dK线获取失败] {symbol}: {e}，降级为RANGE_BOUND")
         return "RANGE_BOUND", {'price': 0, 'rsi': 50, 'mode': 'RANGE_BOUND',
                                'grids': 4, 'grid_profit': GRID_PROFIT, 'atr': 0,
                                'trend_bias': 0.3, 'confidence': 0, 'correlation': CORRELATION_WITH_BTC.get(symbol, 0.5)}
@@ -671,8 +673,9 @@ class TrendEngine:
                 self.peak_price = price
                 log(f"[趋势买入] {self.symbol}@{price:.4f} qty={qty:.4f}")
                 return True
-        except:
+        except Exception as e:
             _api_fail()
+            log(f"[⚠️ 趋势买入失败] {self.symbol}: {e}")
         return False
 
     def check(self, cur_price):
@@ -712,8 +715,9 @@ class TrendEngine:
                     log(f"[TP1] {self.symbol}@{cur_price:.4f} 卖50%qty={sell_qty:.4f}")
                     self.position['qty'] -= sell_qty
                     self.position['tp1_done'] = True
-                except:
+                except Exception as e:
                     _api_fail()
+                    log(f"[⚠️ 趋势TP1卖出失败] {self.symbol}: {e}")
 
         if profit >= 0.25 and self.position['qty'] > 0:
             self._sell(cur_price, "TP2")
@@ -761,8 +765,9 @@ class TrendEngine:
             elif reason.startswith('TP') and self.sm:
                 self.sm.record_win()
             self.position = None
-        except:
+        except Exception as e:
             _api_fail()
+            log(f"[⚠️ 趋势卖出失败] {self.symbol}: {e}")
 
 # ===================== 状态管理 =====================
 class StateManager:
@@ -787,7 +792,11 @@ class StateManager:
     def _load(self):
         try:
             with open(self.fpath) as f: return json.load(f)
-        except: return {}
+        except FileNotFoundError:
+            return {}
+        except Exception as e:
+            log(f"[⚠️ 状态文件加载失败] {self.fpath}: {e}")
+            return {}
 
     def save(self):
         self.data.update({
@@ -817,8 +826,9 @@ class StateManager:
                 self.initial_balance = bal
                 log(f"[💰 初始余额记录] ${bal:.2f}(区分充值与策略盈利)")
             return bal
-        except:
+        except Exception as e:
             _api_fail()
+            log(f"[⚠️ 获取余额失败] {e}")
             return 0.0
 
     def record_loss(self):
@@ -986,8 +996,8 @@ def main():
                 break
         else:
             raise ValueError("Binance not found in exchanges list")
-    except:
-        log("[错误] 读取config_exchange.yaml失败")
+    except Exception as e:
+        log(f"[⚠️ 读取config_exchange.yaml失败] {e}")
         return
 
     ex = SpotAdapter(api_key, secret)
@@ -1120,17 +1130,17 @@ def main():
             for sym in list(grid_engines.keys()):
                 eng = grid_engines[sym]
                 if eng._all_sold:
-                    # v1.3修复：如果还有pending_profit未处理，保留引擎等Phase2或提取
+                    # v1.3修复:如果还有pending_profit未处理,保留引擎等Phase2或提取
                     if eng.pending_profit > 0:
                         available = eng.pending_profit * PROFIT_LOCK
                         if available >= 11:
-                            # 还有足够利润开Phase2，跳过清理
+                            # 还有足够利润开Phase2,跳过清理
                             continue
-                        # 利润不足，提取到已实现盈亏避免丢失
+                        # 利润不足,提取到已实现盈亏避免丢失
                         sm.realized_profit += eng.pending_profit
                         log(f"[⚠️ 利润转移] {sym} pending_profit=${eng.pending_profit:.2f} → realized_profit")
-                    log(f"[引擎清理] {sym} 所有格已平，移除引擎")
-                    del grid_engines[sym]        
+                    log(f"[引擎清理] {sym} 所有格已平,移除引擎")
+                    del grid_engines[sym]
             for sym in list(trend_engines.keys()):
                 if trend_engines[sym].position is None:
                     del trend_engines[sym]
@@ -1274,9 +1284,9 @@ def main():
                         _api_success()
                         if api_qty <= 0 and eng.has_position():
                             eng.detect_manual_close(api_qty)
-                    except:
+                    except Exception as e:
                         _api_fail()
-                        pass
+                        log(f"[⚠️ 手动平仓检测失败] {sym}: {e}")
 
             active_g = len([e for e in grid_engines.values() if e.has_position()])
             active_t = len([e for e in trend_engines.values() if e.position])
