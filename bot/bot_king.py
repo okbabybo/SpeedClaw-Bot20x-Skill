@@ -485,8 +485,9 @@ class GridEngine:
         if self._open_count < self.phase1_limit: return
         for idx in range(self.max_grids):
             if idx not in self.positions:
-                # v1.3修复:必须等buy_grid成功才清零pending_profit
-                success = self.buy_grid(idx, cur_price, locked_profit=self.pending_profit,
+                # v1.4修复:只用PROFIT_LOCK后的可用利润开仓(避免超限)
+                phase2_capital = self.pending_profit * PROFIT_LOCK
+                success = self.buy_grid(idx, cur_price, locked_profit=phase2_capital,
                               grid_profit=GRID_PHASE2_TP)  # v1.2: Phase2用0.75%TP
                 if success:
                     self.pending_profit = 0
@@ -914,7 +915,11 @@ class StateManager:
                 log(f"[💰 提盈] 真实利润${profit:.2f} → 提取${take:.2f} | 余额${balance:.2f} | 初始${self.initial_balance:.2f}")
                 self.total_profit_taken += take
                 self.realized_profit += profit  # 更新已实现盈亏
-                self.high_water = balance * 0.9
+                # HWM同步下调提取额:提走利润后风控起点也跟着下降
+                # 避免"提完利润下一秒回撤报擎触发"
+                # 但保证至少不会越提越高(可能存在多次提盈)
+                prev_hwm = self.high_water
+                self.high_water = max(self.initial_balance, prev_hwm - take)
                 self.save()
         if balance > self.high_water:
             self.high_water = balance
@@ -983,7 +988,7 @@ def main():
     log("=" * 70)
     log("  SpeedClaw BotKing 现货机器人 v1.3 🦞")
     log(f"  币种: {COINS}")
-    log(f"  网格: 2-6格/0.3%-1.5% | 趋势:TP15%/25% | SL:网格2%/趋势12%")
+    log(f"  网格: 2-4格/0.5%-1.5% | 趋势:TP15%/25% | SL:网格0.5%/趋势12%")
     log(f"  熔断: 连亏3次暂停 | 回撤:>20%清仓 | 日亏:>8%暂停")
     log(f"  API限速: {API_MAX_REQUESTS}次/分钟 | 熔断: 连续{API_CIRCUIT_BREAKER_THRESHOLD}次失败暂停120秒")
     log("=" * 70)
