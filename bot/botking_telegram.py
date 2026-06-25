@@ -3,10 +3,7 @@
 BotKing Telegram Bot 控制面板
 ==============================
 通过Telegram控制BotKing现货机器人
-- 查看状态
-- 启停机器人
-- 查看持仓/余额
-- 接收实时通知
+- 查看状态/启停机器人/查看持仓/余额/接收通知
 
 用法:
   1. 在 @BotFather 创建机器人,获取TOKEN
@@ -24,7 +21,7 @@ import subprocess
 import requests
 from pathlib import Path
 from datetime import datetime
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from threading import Thread
 
 # ===================== 配置 =====================
@@ -33,27 +30,14 @@ ADMIN_CHAT_ID = int(os.environ.get('ADMIN_CHAT_ID', '0'))
 STATE_FILE = Path('/root/.openclaw/workspace/bot_king_state.json')
 LOG_FILE = Path('/root/.openclaw/workspace/bot_king.log')
 
-# 状态缓存
-bot_status = {
-    'running': False,
-    'last_check': None,
-    'balance': 0.0,
-    'positions': [],
-    'total_profit': 0.0,
-    'loss_streak': 0,
-    'mode': 'UNKNOWN',
-    'restart_count': 0,
-}
-
 
 # ===================== 工具函数 =====================
 def log(msg):
     ts = datetime.now().strftime('%m/%d %H:%M:%S')
-    print(f"[{ts}] {msg}")
+    print(f"[{ts}] {msg}", flush=True)
 
 
 def read_state():
-    """读取bot_king状态文件"""
     if not STATE_FILE.exists():
         return {}
     try:
@@ -65,7 +49,6 @@ def read_state():
 
 
 def get_pm2_status():
-    """获取PM2进程状态"""
     try:
         result = subprocess.run(
             ['pm2', 'jlist'],
@@ -79,7 +62,7 @@ def get_pm2_status():
                     'pid': p.get('pid'),
                     'uptime': p.get('pm2_env', {}).get('pm_uptime', 0),
                     'restart_count': p.get('pm2_env', {}).get('restart_time', 0),
-                    'memory': p.get('memory', 0) / 1024 / 1024,  # MB
+                    'memory': p.get('memory', 0) / 1024 / 1024,
                     'cpu': p.get('cpu', 0),
                 }
     except Exception as e:
@@ -88,7 +71,6 @@ def get_pm2_status():
 
 
 def tail_log(n=20):
-    """读取最近n行日志"""
     if not LOG_FILE.exists():
         return "日志文件不存在"
     try:
@@ -99,33 +81,52 @@ def tail_log(n=20):
         return f"读取日志失败: {e}"
 
 
-# ===================== Telegram 机器人 =====================
+def send_long_message(update, text):
+    """发送长消息，自动分段(Telegram限制4096字符)"""
+    if len(text) <= 4000:
+        return update.message.reply_text(text)
+
+    # 分段发送
+    parts = []
+    while len(text) > 4000:
+        split_at = text.rfind('\n', 0, 4000)
+        if split_at == -1:
+            split_at = 4000
+        parts.append(text[:split_at])
+        text = text[split_at:].lstrip('\n')
+    parts.append(text)
+
+    for i, part in enumerate(parts):
+        if i == 0:
+            update.message.reply_text(part)
+        else:
+            update.message.reply_text(f"📄 (续 {i+1}/{len(parts)})\n\n{part}")
+
+
+# ===================== Telegram 机器人命令 =====================
 async def cmd_start(update, context):
-    """欢迎语"""
-    msg = """🦞 *SpeedClaw BotKing 控制面板*
+    msg = """🦞 SpeedClaw BotKing 控制面板
 
-欢迎使用 BotKing 现货量化机器人!
+欢迎使用 BotKing 现货量化机器人！
 
-*可用命令:*
-/status - 查看机器人状态
-/balance - 查看账户余额
+可用命令：
+/status   - 查看机器人状态
+/balance  - 查看账户余额
 /positions - 查看当前持仓
-/positions\\_all - 查看所有持仓详情
-/mode - 当前市场模式
-/profit - 累计盈亏
-/log \\[N\\] - 查看最近N条日志 (默认20)
-/start\\_bot - 启动机器人
-/stop\\_bot - 停止机器人
-/restart\\_bot - 重启机器人
-/help - 帮助
+/mode     - 当前市场模式
+/profit   - 累计盈亏
+/log      - 查看最近日志
+/help     - 帮助信息
 
-🔐 _授权用户专用_
+启停控制：
+/start_bot  - 启动机器人
+/stop_bot   - 停止机器人
+/restart_bot - 重启机器人
 """
-    await update.message.reply_text(msg, parse_mode='Markdown')
+    await update.message.reply_text(msg)
 
 
 async def cmd_status(update, context):
-    """机器人状态"""
     pm2 = get_pm2_status()
     state = read_state()
 
@@ -135,44 +136,42 @@ async def cmd_status(update, context):
     uptime_s = int(time.time() * 1000) - pm2.get('uptime', 0) if pm2.get('uptime') else 0
     uptime_h = uptime_s / 1000 / 3600
 
-    msg = f"""🦞 *BotKing 状态*
+    msg = f"""🦞 BotKing 状态
 
-*机器人:* {status_emoji} {status_text}
-*PID:* `{pm2.get('pid', '-')}`
-*运行时长:* {uptime_h:.1f} 小时
-*重启次数:* {pm2.get('restart_count', 0)}
-*内存占用:* {pm2.get('memory', 0):.1f} MB
-*CPU:* {pm2.get('cpu', 0):.1f}%
-*当前模式:* {state.get('market_mode', 'UNKNOWN')}
+🤖 机器人：{status_emoji} {status_text}
+📌 PID：{pm2.get('pid', '-')}
+⏰ 运行时长：{uptime_h:.1f} 小时
+🔁 重启次数：{pm2.get('restart_count', 0)}
+💾 内存占用：{pm2.get('memory', 0):.1f} MB
+⚙️ CPU：{pm2.get('cpu', 0):.1f}%
+🌐 当前模式：{state.get('market_mode', 'UNKNOWN')}
 
-_最近更新: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}_
+最近更新：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """
-    await update.message.reply_text(msg, parse_mode='Markdown')
+    await update.message.reply_text(msg)
 
 
 async def cmd_balance(update, context):
-    """账户余额"""
     state = read_state()
     initial = state.get('initial_balance', 0)
     realized = state.get('realized_profit', 0)
     hwm = state.get('high_water', 0)
     taken = state.get('total_profit_taken', 0)
 
-    msg = f"""💰 *账户状态*
+    msg = f"""💰 账户状态
 
-*初始余额:* ${initial:.2f}
-*当前高水位:* ${hwm:.2f}
-*累计已提取:* ${taken:.2f}
-*已实现盈亏:* ${realized:+.2f}
+💵 初始余额：${initial:.2f}
+📈 当前高水位：${hwm:.2f}
+💸 累计已提取：${taken:.2f}
+📊 已实现盈亏：${realized:+.2f}
 
-_数据来源: bot_king_state.json_
-_查询时间: {datetime.now().strftime('%H:%M:%S')}_
+数据来源：bot_king_state.json
+查询时间：{datetime.now().strftime('%H:%M:%S')}
 """
-    await update.message.reply_text(msg, parse_mode='Markdown')
+    await update.message.reply_text(msg)
 
 
 async def cmd_positions(update, context):
-    """当前持仓"""
     state = read_state()
     engines = state.get('engines', {})
     grids = engines.get('grids', {})
@@ -182,39 +181,39 @@ async def cmd_positions(update, context):
         await update.message.reply_text("📭 当前无持仓")
         return
 
-    msg = "📊 *当前持仓*\n\n"
+    msg = "📊 当前持仓\n\n"
 
     if grids:
-        msg += "*网格引擎:*\n"
+        msg += "🔲 网格引擎：\n"
         for sym, g in grids.items():
             qty = g.get('position_qty', 0)
             entry = g.get('entry_price', 0)
             grids_count = g.get('max_grids', 0)
             pending = g.get('pending_profit', 0)
-            msg += f"  • `{sym}`: qty={qty:.4f} @ ${entry:.2f} ({grids_count}格) 利润:${pending:.2f}\n"
+            msg += f"  • {sym}: qty={qty:.4f} @ ${entry:.2f} ({grids_count}格) 利润:${pending:.2f}\n"
         msg += "\n"
 
     if trends:
-        msg += "*趋势引擎:*\n"
+        msg += "📈 趋势引擎：\n"
         for sym, t in trends.items():
             pos = t.get('position', {})
             qty = pos.get('qty', 0)
             entry = pos.get('entry', 0)
             tp1_done = pos.get('tp1_done', False)
-            msg += f"  • `{sym}`: qty={qty:.4f} @ ${entry:.2f} TP1:{'✓' if tp1_done else '✗'}\n"
+            tp1_mark = '✓' if tp1_done else '✗'
+            msg += f"  • {sym}: qty={qty:.4f} @ ${entry:.2f} TP1:{tp1_mark}\n"
 
-    await update.message.reply_text(msg, parse_mode='Markdown')
+    await update.message.reply_text(msg)
 
 
 async def cmd_mode(update, context):
-    """当前市场模式"""
     state = read_state()
     mode = state.get('market_mode', 'UNKNOWN')
     loss_streak = state.get('loss_streak', 0)
     lock_until = state.get('lock_until', 0)
     locked = lock_until > time.time()
 
-    mode_emoji = {
+    mode_map = {
         'TREND_UP': '🟢 上涨趋势',
         'TREND_DOWN': '📉 下跌趋势',
         'RANGE_BOUND': '📊 震荡盘整',
@@ -222,21 +221,23 @@ async def cmd_mode(update, context):
         'VOLATILE_OVERBOUGHT': '🟠 超买卖出',
         'CRISIS': '💥 危机',
     }
-    mode_text = mode_emoji.get(mode, f'❓ {mode}')
+    mode_text = mode_map.get(mode, f'❓ {mode}')
 
-    msg = f"""🌐 *市场状态*
+    lock_emoji = '🔒' if locked else '🔓'
+    lock_text = '锁定中' if locked else '正常'
 
-*当前模式:* {mode_text}
-*连亏次数:* {loss_streak}
-*锁定状态:* {'🔒 锁定中' if locked else '🔓 正常'}
+    msg = f"""🌐 市场状态
 
-_查询时间: {datetime.now().strftime('%H:%M:%S')}_
+当前模式：{mode_text}
+连亏次数：{loss_streak}
+锁定状态：{lock_emoji} {lock_text}
+
+查询时间：{datetime.now().strftime('%H:%M:%S')}
 """
-    await update.message.reply_text(msg, parse_mode='Markdown')
+    await update.message.reply_text(msg)
 
 
 async def cmd_profit(update, context):
-    """盈亏详情"""
     state = read_state()
     hwm = state.get('high_water', 0)
     initial = state.get('initial_balance', 0)
@@ -248,22 +249,21 @@ async def cmd_profit(update, context):
     else:
         roi = 0
 
-    msg = f"""📈 *盈亏详情*
+    msg = f"""📈 盈亏详情
 
-*账户高水位:* ${hwm:.2f}
-*初始本金:* ${initial:.2f}
-*浮动盈亏:* ${hwm - initial:+.2f}
-*已实现盈亏:* ${realized:+.2f}
-*已提取利润:* ${taken:.2f}
-*ROI:* {roi:+.2f}%
+账户高水位：${hwm:.2f}
+初始本金：${initial:.2f}
+浮动盈亏：${hwm - initial:+.2f}
+已实现盈亏：${realized:+.2f}
+已提取利润：${taken:.2f}
+ROI：{roi:+.2f}%
 
-_查询时间: {datetime.now().strftime('%H:%M:%S')}_
+查询时间：{datetime.now().strftime('%H:%M:%S')}
 """
-    await update.message.reply_text(msg, parse_mode='Markdown')
+    await update.message.reply_text(msg)
 
 
 async def cmd_log(update, context):
-    """查看日志"""
     n = 20
     if context.args:
         try:
@@ -272,16 +272,14 @@ async def cmd_log(update, context):
         except ValueError:
             pass
     log_text = tail_log(n)
-    # 截断Telegram消息长度限制
     if len(log_text) > 3500:
         log_text = '...\n' + log_text[-3500:]
 
-    msg = f"📋 *最近 {n} 条日志:*\n\n```\n{log_text}\n```"
-    await update.message.reply_text(msg, parse_mode='Markdown')
+    msg = f"📋 最近 {n} 条日志：\n\n```\n{log_text}\n```"
+    await update.message.reply_text(msg, parse_mode='Markdown')  # log用代码块安全
 
 
 async def cmd_start_bot(update, context):
-    """启动机器人"""
     await update.message.reply_text("🚀 启动BotKing...")
     try:
         subprocess.run(['pm2', 'start', 'bot_king.py', '--name', 'bot-king', '--interpreter', 'python3'],
@@ -293,7 +291,6 @@ async def cmd_start_bot(update, context):
 
 
 async def cmd_stop_bot(update, context):
-    """停止机器人"""
     await update.message.reply_text("⏸ 停止BotKing...")
     try:
         subprocess.run(['pm2', 'stop', 'bot-king'], capture_output=True, timeout=10)
@@ -303,7 +300,6 @@ async def cmd_stop_bot(update, context):
 
 
 async def cmd_restart_bot(update, context):
-    """重启机器人"""
     await update.message.reply_text("🔄 重启BotKing...")
     try:
         subprocess.run(['pm2', 'restart', 'bot-king'], capture_output=True, timeout=15)
@@ -313,30 +309,41 @@ async def cmd_restart_bot(update, context):
 
 
 async def cmd_help(update, context):
-    """帮助"""
-    msg = """🦞 *BotKing 控制命令*
+    """帮助菜单 - 修复版：纯文本不用Markdown"""
+    msg = """🦞 BotKing 控制命令
 
-*基础信息:*
-/status - 机器人状态(PID/内存/CPU/运行时长)
-/balance - 账户余额详情
+══════ 基础信息 ══════
+/status   - 机器人状态 (PID/内存/CPU/运行时长)
+/balance  - 账户余额详情
 /positions - 当前所有持仓
-/mode - 当前市场模式
-/profit - 累计盈亏详情
-/log \\[N\\] - 最近N条日志 (5-100)
+/mode     - 当前市场模式
+/profit   - 累计盈亏详情
+/log [N]  - 最近N条日志 (5-100, 默认20)
 
-*机器人控制:*
-/start\\_bot - 启动机器人
-/stop\\_bot - 停止机器人
-/restart\\_bot - 重启机器人
+══════ 机器人控制 ══════
+/start_bot  - 启动机器人
+/stop_bot   - 停止机器人
+/restart_bot - 重启机器人
 
-*风险提示:*
-⚠️ 启停操作有风险,谨慎使用
+══════ 风险提示 ══════
+⚠️ 启停操作有风险，谨慎使用
 ⚠️ 所有操作记录到 bot_king.log
+⚠️ 建议先用 /status 查看状态
+
+══════ 故障排查 ══════
+Bot无响应：
+  pm2 logs botking-tg --nostream
+
+重启Bot：
+  pm2 restart botking-tg
+
+═══════════════════
+v1.4.3 · @Okbabybo
 """
-    await update.message.reply_text(msg, parse_mode='Markdown')
+    await update.message.reply_text(msg)
 
 
-# ===================== Flask Web API (供PWA前端) =====================
+# ===================== Flask Web API =====================
 app = Flask(__name__)
 
 
@@ -374,7 +381,7 @@ def api_positions():
 
 @app.route('/api/log')
 def api_log():
-    n = int(request.args.get('n', 20)) if 'request' in dir() else 20
+    n = int(request.args.get('n', 20))
     return jsonify({'log': tail_log(n)})
 
 
@@ -383,26 +390,23 @@ def main():
     if not TELEGRAM_TOKEN:
         print("❌ 请设置环境变量 TELEGRAM_TOKEN")
         print("   export TELEGRAM_TOKEN=你的机器人TOKEN")
-        print("   在 @BotFather 创建机器人获取")
         sys.exit(1)
 
     # 启动Flask API (后台线程)
     def run_flask():
-        import os as _os
-        port = int(_os.environ.get('BOTKING_API_PORT', 5002))
+        port = int(os.environ.get('BOTKING_API_PORT', 5002))
+        log(f"✅ Flask API启动中 (端口{port})")
         app.run(host='0.0.0.0', port=port, debug=False)
 
     flask_thread = Thread(target=run_flask, daemon=True)
     flask_thread.start()
-    log("✅ Flask API已启动: http://0.0.0.0:5000")
 
     # 启动Telegram Bot
     from telegram import Update
-    from telegram.ext import Application, CommandHandler, ContextTypes
+    from telegram.ext import Application, CommandHandler
 
     app_tg = Application.builder().token(TELEGRAM_TOKEN).build()
 
-    # 注册命令
     app_tg.add_handler(CommandHandler("start", cmd_start))
     app_tg.add_handler(CommandHandler("status", cmd_status))
     app_tg.add_handler(CommandHandler("balance", cmd_balance))
@@ -417,7 +421,7 @@ def main():
 
     log("✅ Telegram Bot已启动")
     log("📱 在Telegram搜索你的机器人用户名,发送 /start 开始")
-    log("🌐 Web API: http://localhost:5000/api/status")
+    log(f"🌐 Web API: http://localhost:{os.environ.get('BOTKING_API_PORT', 5002)}/api/status")
 
     app_tg.run_polling()
 
