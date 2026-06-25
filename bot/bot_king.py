@@ -748,6 +748,8 @@ class TrendEngine:
                     log(f"[TP1] {self.symbol}@{cur_price:.4f} 卖50%qty={sell_qty:.4f}")
                     self.position['qty'] -= sell_qty
                     self.position['tp1_done'] = True
+                    # v1.4.1修复:TP1记录胜利,避免连亏计数误增
+                    if self.sm: self.sm.record_win()
                 except Exception as e:
                     _api_fail()
                     log(f"[⚠️ 趋势TP1卖出失败] {self.symbol}: {e}")
