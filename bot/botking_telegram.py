@@ -308,6 +308,107 @@ async def cmd_restart_bot(update, context):
         await update.message.reply_text(f"❌ 重启失败: {e}")
 
 
+# ===================== 自然语言处理 =====================
+INTENT_KEYWORDS = {
+    'status': ['状态', 'status', '进程', '死了', '挂了', '还活着', 'pid', '跑着', '跑没', '还活着', '活没', '看进程', '看pid'],
+    'balance': ['余额', '多少钱', '本金', '账户', 'balance', '存款', '有钱', '剩多少', '有少', '还剩', '还有钱'],
+    'positions': ['持仓', '仓位', 'positions', '持币', '持什么', '买了什么', '有什么币', '持仓', '货', '持货', '有货'],
+    'mode': ['模式', '行情', '市场', '趋势', '震荡', '什么行情', '上涨', '下跌', '走', '什么走势', '是', '市况', '状况', '横盘', '走势', '走趋'],
+    'profit': ['盈亏', '赚', '亏', '收益', 'profit', '赚多少', '亏多少', '利润', '输了', '赢了', '翻', '抽了', '投报'],
+    'log': ['日志', 'log', '报错', '错误', '看日志', 'log 10', 'log 20', '最近日志', '出错', '异常', '出问题', '有错', '有报错', '出了什么问题', '有异常'],
+    'start_bot': ['启动', '开始', 'start_bot', '跑起来', '开始跑', '运行机器人', '干', '干起来', '运转', '起动'],
+    'stop_bot': ['停止', '停', 'stop_bot', '暂停', '别跑了', '停一下', '别动', '关机', '给我停', '停吧'],
+    'restart_bot': ['重启', 'restart', 'restart_bot', '重新启动', '重新跑', '再来一次', '再来', '从启', '再跑', '重新', '再启动', '重启一下', '重启动', '重新起', '重启吧'],
+    'help': ['帮助', 'help', '怎么用', '不会用', '指令', '命令', '菜单', '能做什么', '你会什么', '有什么功能'],
+}
+
+
+def detect_intent(text):
+    """从自然语言识别用户意图"""
+    text_lower = text.lower().strip()
+
+    # 1. 先看是否就是 /开头的命令
+    if text_lower.startswith('/'):
+        cmd = text_lower[1:].split()[0] if text_lower[1:] else 'help'
+        return cmd.replace('_bot', '_bot')
+
+    # 2. 关键词匹配
+    scores = {}
+    for intent, keywords in INTENT_KEYWORDS.items():
+        score = 0
+        for kw in keywords:
+            if kw.lower() in text_lower:
+                # 关键词长度越长分数越高
+                score += len(kw)
+        if score > 0:
+            scores[intent] = score
+
+    if scores:
+        return max(scores, key=scores.get)
+    return None
+
+
+async def handle_natural_language(update, context):
+    """处理自然语言消息"""
+    text = update.message.text.strip()
+    intent = detect_intent(text)
+
+    if not intent:
+        await update.message.reply_text(
+            "🤔 没听懂你说的意思\n\n"
+            "可以这样跟我说：\n"
+            "• 查看一下余额\n"
+            "• 现在什么状态\n"
+            "• 持仓情况\n"
+            "• 启动机器人\n"
+            "• 帮助\n\n"
+            "或者直接发 /help 看所有命令"
+        )
+        return
+
+    # 显示识别结果，让用户知道系统理解对了
+    intent_emoji = {
+        'status': '🟢 状态',
+        'balance': '💰 余额',
+        'positions': '📊 持仓',
+        'mode': '🌐 模式',
+        'profit': '📈 盈亏',
+        'log': '📋 日志',
+        'start_bot': '🚀 启动',
+        'stop_bot': '⏸ 停止',
+        'restart_bot': '🔄 重启',
+        'help': '❓ 帮助',
+    }
+    await update.message.reply_text(
+        f"🎤 识别意图：{intent_emoji.get(intent, intent)}"
+    )
+
+    # 路由到对应命令
+    handlers = {
+        'status': cmd_status,
+        'balance': cmd_balance,
+        'positions': cmd_positions,
+        'mode': cmd_mode,
+        'profit': cmd_profit,
+        'help': cmd_help,
+        'start_bot': cmd_start_bot,
+        'stop_bot': cmd_stop_bot,
+        'restart_bot': cmd_restart_bot,
+    }
+
+    if intent == 'log':
+        # 提取数字参数（如"看20条日志"）
+        import re
+        nums = re.findall(r'\d+', text)
+        if nums:
+            context.args = [nums[0]]
+        else:
+            context.args = ['20']
+        await cmd_log(update, context)
+    elif intent in handlers:
+        await handlers[intent](update, context)
+
+
 async def cmd_help(update, context):
     """帮助菜单 - 修复版：纯文本不用Markdown"""
     msg = """🦞 BotKing 控制命令
@@ -403,7 +504,7 @@ def main():
 
     # 启动Telegram Bot
     from telegram import Update
-    from telegram.ext import Application, CommandHandler
+    from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
     app_tg = Application.builder().token(TELEGRAM_TOKEN).build()
 
@@ -418,6 +519,12 @@ def main():
     app_tg.add_handler(CommandHandler("stop_bot", cmd_stop_bot))
     app_tg.add_handler(CommandHandler("restart_bot", cmd_restart_bot))
     app_tg.add_handler(CommandHandler("help", cmd_help))
+
+    # 自然语言消息处理（文本消息但不是命令）
+    app_tg.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND,
+        handle_natural_language
+    ))
 
     log("✅ Telegram Bot已启动")
     log("📱 在Telegram搜索你的机器人用户名,发送 /start 开始")
