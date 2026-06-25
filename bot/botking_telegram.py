@@ -388,7 +388,9 @@ def main():
 
     # 启动Flask API (后台线程)
     def run_flask():
-        app.run(host='0.0.0.0', port=5000, debug=False)
+        import os as _os
+        port = int(_os.environ.get('BOTKING_API_PORT', 5002))
+        app.run(host='0.0.0.0', port=port, debug=False)
 
     flask_thread = Thread(target=run_flask, daemon=True)
     flask_thread.start()
