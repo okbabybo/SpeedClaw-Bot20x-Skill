@@ -216,9 +216,12 @@ def calc_adx(klines, period=14):
     return min(dx, 100)
 
 def get_phase1_grids(balance):
-    if balance < 100:  return 1
-    if balance < 300:  return 2
-    return 2
+    # v1.4.1修复:Phase1格数阶梯化
+    # 小账户优先少开,确保单格资金充足(避免下不了单)
+    if balance < 100:  return 1   # <$100: 1格,单格$50
+    if balance < 300:  return 2   # $100-300: 2格,单格$50-150
+    if balance < 1000: return 2   # $300-1000: 2格,Phase2补充到4格
+    return 3                       # >$1000: 3格,单格$500
 
 def get_fear_greed():
     global _last_fear_greed, _last_fg_fetch
@@ -1365,4 +1368,18 @@ def main():
         time.sleep(CHECK_INTERVAL)
 
 if __name__ == '__main__':
-    main()
+    # v1.4.1:主循环顶层增加try/except,避免未捕获异常导致机器人崩
+    # PM2会重启,但能保留现场减少损忐
+    import traceback as _tb
+    while True:
+        try:
+            main()
+            break  # main正常退出才跳出
+        except KeyboardInterrupt:
+            log("[🛑 用户中断]")
+            break
+        except Exception as e:
+            log(f"[💥 主循环崩馈] {e} ({type(e).__name__})")
+            log(_tb.format_exc())
+            log("[⏳ 30秒后PM2将重启]")
+            time.sleep(30)
