@@ -74,12 +74,20 @@ class BinanceSpotAdapter:
         返回标准化K线: [[open_time, open, high, low, close, volume], ...]
         symbol格式: BTCUSDT (不用点号)
         """
-        r = requests.get(
-            f"{self.base}/api/v3/klines",
-            params={"symbol": symbol, "interval": interval, "limit": limit},
-            timeout=self.timeout
-        )
-        return r.json()
+        try:
+            r = requests.get(
+                f"{self.base}/api/v3/klines",
+                params={"symbol": symbol, "interval": interval, "limit": limit},
+                timeout=self.timeout
+            )
+            r.raise_for_status()
+            data = r.json()
+            if not isinstance(data, list):
+                # v1.4.2:返回非list说明API错误,返回空列表避免下游崩溃
+                return []
+            return data
+        except Exception:
+            return []
     
     # ===================== 订单 =====================
     def market_buy(self, symbol: str, quantity: float) -> bool:
@@ -138,8 +146,14 @@ class BinanceSpotAdapter:
         
         if step_size == 0:
             return f"{qty:.6f}"
-        
-        qty_str = f"{float(qty) // step_size * step_size:.8f}"
+
+        # v1.4.2修复:用量化下取整而不是int除法,避免qty<step_size时返回0
+        import math
+        rounded = math.floor(float(qty) / step_size) * step_size
+        # 边界:若舍后为0但原始qty>0,采用最小步进
+        if rounded <= 0 and float(qty) > 0:
+            rounded = step_size
+        qty_str = f"{rounded:.8f}"
         # 去掉尾部0
         qty_str = qty_str.rstrip('0').rstrip('.')
         return qty_str
@@ -181,12 +195,16 @@ class BinanceSpotAdapter:
     
     def get_price(self, symbol: str) -> float:
         """当前价格"""
-        r = requests.get(
-            f"{self.base}/api/v3/ticker/price",
-            params={"symbol": symbol},
-            timeout=self.timeout
-        )
-        return float(r.json().get('price', 0))
+        try:
+            r = requests.get(
+                f"{self.base}/api/v3/ticker/price",
+                params={"symbol": symbol},
+                timeout=self.timeout
+            )
+            r.raise_for_status()
+            return float(r.json().get('price', 0))
+        except Exception:
+            return 0.0
     
     def get_24h_ticker(self, symbol: str) -> dict:
         """24h行情统计"""

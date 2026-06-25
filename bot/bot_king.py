@@ -1317,7 +1317,7 @@ def main():
                             sell_qty = eng.position['qty'] * reduce_pct
                             # 同步币安API卖单
                             try:
-                                ex.order_market_sell(sym, sell_qty)
+                                ex.market_sell(sym, sell_qty)
                                 _api_success()
                             except Exception as api_e:
                                 _api_fail()
@@ -1358,7 +1358,8 @@ def main():
                 for sym, eng in list(grid_engines.items()):
                     try:
                         _check_api_rate_limit()
-                        api_qty = ex.get_spot_holdings(sym)
+                        # v1.4.2修复:get_spot_holdings不存在,改用get_balance查询币种余额
+                        api_qty = ex.get_balance(sym.replace('USDT', ''))
                         _api_success()
                         if api_qty <= 0 and eng.has_position():
                             eng.detect_manual_close(api_qty)
