@@ -371,7 +371,7 @@ def detect_market_mode(symbol, ex):
         "TREND_DOWN":          {"pos_pct": 0.3,  "grids": 2, "grid_profit": GRID_PROFIT,      "trend_bias": 0.0},
         "RANGE_BOUND":         {"pos_pct": 0.8,  "grids": atr_grids, "grid_profit": atr_gp,  "trend_bias": 0.3},
         "VOLATILE_OVERSOLD":   {"pos_pct": 1.2,  "grids": min(atr_grids, 4), "grid_profit": atr_gp, "trend_bias": 0.7},
-        "VOLATILE_OVERBOUGHT": {"pos_pct": 0.0,  "grids": 0, "grid_profit": atr_gp,          "trend_bias": 0.0},
+        "VOLATILE_OVERBOUGHT": {"pos_pct": 0.7,  "grids": 1, "grid_profit": atr_gp,          "trend_bias": 0.0,  "reduce_pct": 0.30},
         "CRISIS":              {"pos_pct": 0.0,  "grids": 0, "grid_profit": atr_gp,          "trend_bias": 0.0},
     }
     base_params = _mode_params[mode]
@@ -394,6 +394,7 @@ def detect_market_mode(symbol, ex):
         'trend_bias': base_params['trend_bias'],
         'total_score': total_score,
         'pos_pct': base_params['pos_pct'],
+        'reduce_pct': base_params.get('reduce_pct', 0.0),
         'rsi_bullish_div': rsi_bullish_div,
         'vol_ratio': vol_ratio,
         'fear_greed': fg,
@@ -1234,27 +1235,58 @@ def main():
 
             for sym, info in signals.items():
                 if info['mode'] in ("VOLATILE_OVERBOUGHT",):
+                    # v1.4现货适配:超买只减仓30%(不是清仓),保护已有利润
                     if sym in grid_engines:
                         try:
                             _check_api_rate_limit()
                             cur = info['price']
                             _api_success()
+                            reduce_pct = info.get('reduce_pct', 0.30)
                             for idx in list(grid_engines[sym].positions.keys()):
-                                grid_engines[sym]._sell_grid(idx, cur, f"市场-{info['mode']}")
+                                pos = grid_engines[sym].positions[idx]
+                                if pos.get('qty', 0) <= 0: continue
+                                sell_qty = pos['qty'] * reduce_pct
+                                # 半卖:不调用完整_sell_grid(那会重置grid),而是手动减仓
+                                proceeds = sell_qty * cur * (1 - 0.001)
+                                # 减仓对应的网格利润提取(从pending_profit按比例)
+                                if grid_engines[sym].pending_profit > 0:
+                                    extract = grid_engines[sym].pending_profit * reduce_pct * 0.5
+                                    grid_engines[sym].pending_profit -= extract
+                                    sm.realized_profit += extract
+                                pos['qty'] -= sell_qty
+                                grid_engines[sym].data['available_balance'] += proceeds
+                                sm.balance += proceeds
+                                log(f"  → 超买减仓{reduce_pct*100:.0f}% {sym}格{idx} 卖${sell_qty*cur:.2f}")
                             sm.record_win()
                         except Exception as e:
                             _api_fail()
-                            log(f"[⚠️ 超买网格卖出失败] {sym}: {e}")
+                            log(f"[⚠️ 超买网格减仓失败] {sym}: {e}")
                     if sym in trend_engines and trend_engines[sym].position:
                         try:
                             _check_api_rate_limit()
                             cur = info['price']
                             _api_success()
-                            trend_engines[sym]._sell(cur, f"市场-{info['mode']}")
+                            reduce_pct = info.get('reduce_pct', 0.30)
+                            # 趋势仓位:超买只减仓30%,不调用完整_sell(避免重置状态)
+                            eng = trend_engines[sym]
+                            sell_qty = eng.position['qty'] * reduce_pct
+                            # 同步币安API卖单
+                            try:
+                                ex.order_market_sell(sym, sell_qty)
+                                _api_success()
+                            except Exception as api_e:
+                                _api_fail()
+                                log(f"  ⚠️ API卖单失败: {api_e}")
+                                raise api_e
+                            proceeds = sell_qty * cur * (1 - 0.001)
+                            eng.position['qty'] -= sell_qty
+                            if eng.position['qty'] < 1e-12: eng.position = None
+                            sm.balance += proceeds
+                            log(f"  → 超买减仓{reduce_pct*100:.0f}% {sym}趋势 卖${sell_qty*cur:.2f}")
                             sm.record_win()
                         except Exception as e:
                             _api_fail()
-                            log(f"[⚠️ 超买趋势卖出失败] {sym}: {e}")
+                            log(f"[⚠️ 超买趋势减仓失败] {sym}: {e}")
                 elif info['mode'] in ("CRISIS", "TREND_DOWN"):
                     if sym in grid_engines:
                         try:
