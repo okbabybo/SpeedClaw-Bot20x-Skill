@@ -30,6 +30,10 @@ ADMIN_CHAT_ID = int(os.environ.get('ADMIN_CHAT_ID', '0'))
 STATE_FILE = Path('/root/.openclaw/workspace/bot_king_state.json')
 LOG_FILE = Path('/root/.openclaw/workspace/bot_king.log')
 
+# Bot20x 配置
+BOT20X_STATE_FILE = Path('/root/.openclaw/workspace/binance_state.json')
+BOT20X_LOG_FILE = Path('/root/.openclaw/workspace/binance_v40.log')  # 或实际日志路径
+
 
 # ===================== 工具函数 =====================
 def log(msg):
@@ -79,6 +83,47 @@ def tail_log(n=20):
         return ''.join(lines[-n:])
     except Exception as e:
         return f"读取日志失败: {e}"
+
+
+def read_bot20x_state():
+    if not BOT20X_STATE_FILE.exists():
+        return {}
+    try:
+        with open(BOT20X_STATE_FILE) as f:
+            return json.load(f)
+    except Exception as e:
+        log(f"读取Bot20x状态失败: {e}")
+        return {}
+
+
+def get_bot20x_status():
+    try:
+        result = subprocess.run(['pm2', 'jlist'], capture_output=True, text=True, timeout=5)
+        procs = json.loads(result.stdout)
+        for p in procs:
+            if p.get('name') == 'bot20x':
+                return {
+                    'running': p.get('pm2_env', {}).get('status') == 'online',
+                    'pid': p.get('pid'),
+                    'uptime': p.get('pm2_env', {}).get('pm_uptime', 0),
+                    'restart_count': p.get('pm2_env', {}).get('restart_time', 0),
+                    'memory': p.get('memory', 0) / 1024 / 1024,
+                    'cpu': p.get('cpu', 0),
+                }
+    except Exception as e:
+        log(f"Bot20x PM2状态获取失败: {e}")
+    return {'running': False}
+
+
+def tail_bot20x_log(n=20):
+    if not BOT20X_LOG_FILE.exists():
+        return "Bot20x日志文件不存在"
+    try:
+        with open(BOT20X_LOG_FILE) as f:
+            lines = f.readlines()
+        return ''.join(lines[-n:])
+    except Exception as e:
+        return f"读取Bot20x日志失败: {e}"
 
 
 def send_long_message(update, text):
@@ -308,6 +353,153 @@ async def cmd_restart_bot(update, context):
         await update.message.reply_text(f"❌ 重启失败: {e}")
 
 
+# ===================== Bot20x 命令 =====================
+async def cmd_kstatus_bot20x(update, context):
+    pm2 = get_bot20x_status()
+    state = read_bot20x_state()
+
+    status_emoji = '🟢' if pm2.get('running') else '🔴'
+    status_text = '运行中' if pm2.get('running') else '已停止'
+
+    uptime_s = int(time.time() * 1000) - pm2.get('uptime', 0) if pm2.get('uptime') else 0
+    uptime_h = uptime_s / 1000 / 3600
+
+    positions = state.get('positions', [])
+    pos_count = len(positions)
+    has_long = state.get('has_long', False)
+    has_short = state.get('has_short', False)
+    direction = []
+    if has_long: direction.append('🟢多')
+    if has_short: direction.append('🔴空')
+
+    msg = f"""🟢 Bot20x 状态
+
+🤖 机器人：{status_emoji} {status_text}
+📌 PID：{pm2.get('pid', '-')}
+⏰ 运行时长：{uptime_h:.1f} 小时
+🔁 重启次数：{pm2.get('restart_count', 0)}
+💾 内存占用：{pm2.get('memory', 0):.1f} MB
+⚙️ CPU：{pm2.get('cpu', 0):.1f}%
+📊 持仓数：{pos_count}
+🎯 当前方向：{' '.join(direction) if direction else '⚪ 空仓'}
+
+最近更新：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+"""
+    await update.message.reply_text(msg)
+
+
+async def cmd_kbalance_bot20x(update, context):
+    state = read_bot20x_state()
+    wallet = state.get('wallet', 0)
+    daily_pnl = state.get('daily_pnl', 0)
+    positions = state.get('positions', [])
+    unrealized = sum(p.get('pnl', 0) for p in positions)
+
+    msg = f"""💰 Bot20x 账户状态
+
+💵 钱包余额：${wallet:.2f}
+📅 今日盈亏：${daily_pnl:+.2f}
+📊 未实现盈亏：${unrealized:+.2f}
+📈 总权益：${wallet + unrealized:.2f}
+
+数据来源：binance_state.json
+查询时间：{datetime.now().strftime('%H:%M:%S')}
+"""
+    await update.message.reply_text(msg)
+
+
+async def cmd_kpositions_bot20x(update, context):
+    state = read_bot20x_state()
+    positions = state.get('positions', [])
+
+    if not positions:
+        await update.message.reply_text("📭 Bot20x 当前无持仓")
+        return
+
+    msg = "📊 Bot20x 当前持仓\n\n"
+    for p in positions:
+        symbol = p.get('symbol', '?')
+        side = p.get('side', '?')
+        side_emoji = '🟢LONG' if side == 'LONG' else '🔴SHORT'
+        entry = p.get('entry', 0)
+        qty = p.get('qty', 0)
+        pnl = p.get('pnl', 0)
+        pnl_emoji = '🟢' if pnl >= 0 else '🔴'
+        sl = p.get('sl', 0)
+        tp = p.get('tp', 0)
+        msg += f"""  • {symbol} {side_emoji}
+    开仓价：${entry:.2f}
+    数量：{qty}
+    盈亏：{pnl_emoji} ${pnl:+.2f}
+    止损：${sl:.2f}
+    止盈：${tp:.2f}
+
+"""
+    await update.message.reply_text(msg)
+
+
+async def cmd_kprofit_bot20x(update, context):
+    state = read_bot20x_state()
+    wallet = state.get('wallet', 0)
+    positions = state.get('positions', [])
+    unrealized = sum(p.get('pnl', 0) for p in positions)
+    daily_pnl = state.get('daily_pnl', 0)
+    total_equity = wallet + unrealized
+
+    msg = f"""📈 Bot20x 盈亏详情
+
+💵 钱包余额：${wallet:.2f}
+📅 今日盈亏：${daily_pnl:+.2f}
+📊 未实现盈亏：${unrealized:+.2f}
+📈 总权益：${total_equity:.2f}
+
+查询时间：{datetime.now().strftime('%H:%M:%S')}
+"""
+    await update.message.reply_text(msg)
+
+
+async def cmd_klog_bot20x(update, context):
+    n = 20
+    if context.args:
+        try:
+            n = int(context.args[0])
+            n = min(max(n, 5), 100)
+        except ValueError:
+            pass
+    log_text = tail_bot20x_log(n)
+    if len(log_text) > 3500:
+        log_text = '...\n' + log_text[-3500:]
+    msg = f"📋 Bot20x 最近 {n} 条日志：\n\n```\n{log_text}\n```"
+    await update.message.reply_text(msg, parse_mode='Markdown')
+
+
+async def cmd_start_bot20x(update, context):
+    await update.message.reply_text("🚀 启动Bot20x...")
+    try:
+        subprocess.run(['pm2', 'start', 'bot20x'], capture_output=True, timeout=10)
+        await update.message.reply_text("✅ Bot20x已启动")
+    except Exception as e:
+        await update.message.reply_text(f"❌ 启动失败: {e}")
+
+
+async def cmd_stop_bot20x(update, context):
+    await update.message.reply_text("⏸ 停止Bot20x...")
+    try:
+        subprocess.run(['pm2', 'stop', 'bot20x'], capture_output=True, timeout=10)
+        await update.message.reply_text("✅ Bot20x已停止")
+    except Exception as e:
+        await update.message.reply_text(f"❌ 停止失败: {e}")
+
+
+async def cmd_restart_bot20x(update, context):
+    await update.message.reply_text("🔄 重启Bot20x...")
+    try:
+        subprocess.run(['pm2', 'restart', 'bot20x'], capture_output=True, timeout=15)
+        await update.message.reply_text("✅ Bot20x已重启")
+    except Exception as e:
+        await update.message.reply_text(f"❌ 重启失败: {e}")
+
+
 # ===================== 自然语言处理 =====================
 INTENT_KEYWORDS = {
     'status': ['状态', 'status', '进程', '死了', '挂了', '还活着', 'pid', '跑着', '跑没', '还活着', '活没', '看进程', '看pid'],
@@ -411,32 +603,44 @@ async def handle_natural_language(update, context):
 
 async def cmd_help(update, context):
     """帮助菜单 - 修复版：纯文本不用Markdown"""
-    msg = """🦞 BotKing 控制命令
+    msg = """🦞 BotKing & Bot20x 控制面板
 
-══════ 基础信息 ══════
-/status   - 机器人状态 (PID/内存/CPU/运行时长)
-/balance  - 账户余额详情
-/positions - 当前所有持仓
-/mode     - 当前市场模式
-/profit   - 累计盈亏详情
-/log [N]  - 最近N条日志 (5-100, 默认20)
+══════ 🟡 BotKing 现货 ══════
+/kstatus   - BotKing 状态
+/kbalance  - BotKing 余额
+/kpositions - BotKing 持仓
+/kmode     - BotKing 市场模式
+/kprofit   - BotKing 盈亏
+/klog [N]  - BotKing 日志
 
-══════ 机器人控制 ══════
-/start_bot  - 启动机器人
-/stop_bot   - 停止机器人
-/restart_bot - 重启机器人
+══════ 🟢 Bot20x 合约 ══════
+/xstatus   - Bot20x 状态
+/xbalance  - Bot20x 余额
+/xpositions - Bot20x 持仓
+/xpositions_all - Bot20x 全部持仓详情
+/xprofit   - Bot20x 盈亏
+/xlog [N]  - Bot20x 日志
+
+══════ 🤖 启停控制 ══════
+/start_bot  - 启动 BotKing
+/stop_bot   - 停止 BotKing
+/restart_bot - 重启 BotKing
+/start_bot20x - 启动 Bot20x
+/stop_bot20x  - 停止 Bot20x
+/restart_bot20x - 重启 Bot20x
+
+══════ 🦞 自然语言 ══════
+直接说中文口语，如：
+• "看一下状态"
+• "我还有多少钱"
+• "持仓怎么样"
+• "干起来"
+• "重启"
+• "帮助"
 
 ══════ 风险提示 ══════
 ⚠️ 启停操作有风险，谨慎使用
 ⚠️ 所有操作记录到 bot_king.log
-⚠️ 建议先用 /status 查看状态
-
-══════ 故障排查 ══════
-Bot无响应：
-  pm2 logs botking-tg --nostream
-
-重启Bot：
-  pm2 restart botking-tg
 
 ═══════════════════
 v1.4.3 · @Okbabybo
@@ -519,6 +723,17 @@ def main():
     app_tg.add_handler(CommandHandler("stop_bot", cmd_stop_bot))
     app_tg.add_handler(CommandHandler("restart_bot", cmd_restart_bot))
     app_tg.add_handler(CommandHandler("help", cmd_help))
+
+    # Bot20x 命令
+    app_tg.add_handler(CommandHandler("xstatus", cmd_kstatus_bot20x))
+    app_tg.add_handler(CommandHandler("xbalance", cmd_kbalance_bot20x))
+    app_tg.add_handler(CommandHandler("xpositions", cmd_kpositions_bot20x))
+    app_tg.add_handler(CommandHandler("xpositions_all", cmd_kpositions_bot20x))
+    app_tg.add_handler(CommandHandler("xprofit", cmd_kprofit_bot20x))
+    app_tg.add_handler(CommandHandler("xlog", cmd_klog_bot20x))
+    app_tg.add_handler(CommandHandler("start_bot20x", cmd_start_bot20x))
+    app_tg.add_handler(CommandHandler("stop_bot20x", cmd_stop_bot20x))
+    app_tg.add_handler(CommandHandler("restart_bot20x", cmd_restart_bot20x))
 
     # 自然语言消息处理（文本消息但不是命令）
     app_tg.add_handler(MessageHandler(
