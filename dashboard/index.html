@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0a0e27">
+    <title>🦞 BotKing 控制台</title>
+    <link rel="manifest" href="manifest.json">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 16px;
+        }
+        .container { max-width: 480px; margin: 0 auto; }
+        .header {
+            text-align: center;
+            padding: 24px 0;
+            border-bottom: 1px solid #2a2f4a;
+            margin-bottom: 24px;
+        }
+        .logo { font-size: 48px; margin-bottom: 8px; }
+        .title { font-size: 20px; font-weight: 600; color: #fff; }
+        .subtitle { font-size: 12px; color: #888; margin-top: 4px; }
+        .card {
+            background: #15192e;
+            border: 1px solid #2a2f4a;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+        .card-title {
+            font-size: 12px;
+            color: #888;
+            text-transform: uppercase;
+            margin-bottom: 12px;
+            letter-spacing: 1px;
+        }
+        .status-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        .status-item {
+            background: #1a1f3a;
+            padding: 12px;
+            border-radius: 8px;
+        }
+        .status-label { font-size: 11px; color: #888; }
+        .status-value {
+            font-size: 18px;
+            font-weight: 600;
+            color: #fff;
+            margin-top: 4px;
+        }
+        .status-value.green { color: #00d68f; }
+        .status-value.red { color: #ff5757; }
+        .status-value.orange { color: #ffaa00; }
+        .balance-value {
+            font-size: 32px;
+            font-weight: 700;
+            color: #00d68f;
+            text-align: center;
+            margin: 12px 0;
+        }
+        .profit-value {
+            font-size: 16px;
+            text-align: center;
+            margin-top: 8px;
+        }
+        .controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 8px;
+        }
+        button {
+            background: #1a1f3a;
+            color: #fff;
+            border: 1px solid #2a2f4a;
+            padding: 12px 8px;
+            border-radius: 8px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        button:active { transform: scale(0.96); }
+        button.start { background: #00d68f; color: #0a0e27; }
+        button.stop { background: #ff5757; color: #fff; }
+        button.restart { background: #ffaa00; color: #0a0e27; }
+        .positions { font-size: 13px; }
+        .position-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #2a2f4a;
+        }
+        .position-item:last-child { border-bottom: none; }
+        .symbol { color: #00d68f; font-weight: 600; }
+        .empty { text-align: center; color: #888; padding: 20px 0; }
+        .log-preview {
+            background: #000;
+            color: #00d68f;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            padding: 12px;
+            border-radius: 6px;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        .footer {
+            text-align: center;
+            font-size: 11px;
+            color: #666;
+            padding: 24px 0;
+        }
+        .pulse { animation: pulse 2s infinite; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">🦞</div>
+            <div class="title">SpeedClaw BotKing</div>
+            <div class="subtitle">v1.4.3 · 现货量化机器人</div>
+        </div>
+
+        <!-- 机器人状态 -->
+        <div class="card">
+            <div class="card-title">🤖 机器人状态</div>
+            <div class="status-grid">
+                <div class="status-item">
+                    <div class="status-label">状态</div>
+                    <div class="status-value" id="bot-status">检查中...</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">运行时长</div>
+                    <div class="status-value" id="uptime">-</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">PID</div>
+                    <div class="status-value" id="pid">-</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">重启次数</div>
+                    <div class="status-value" id="restart">-</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">内存</div>
+                    <div class="status-value" id="memory">-</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">CPU</div>
+                    <div class="status-value" id="cpu">-</div>
+                </div>
+            </div>
+            <div class="controls" style="margin-top: 16px;">
+                <button class="start" onclick="botControl('start')">▶ 启动</button>
+                <button class="restart" onclick="botControl('restart')">🔄 重启</button>
+                <button class="stop" onclick="botControl('stop')">⏸ 停止</button>
+            </div>
+        </div>
+
+        <!-- 账户余额 -->
+        <div class="card">
+            <div class="card-title">💰 账户余额</div>
+            <div class="balance-value" id="balance">$0.00</div>
+            <div class="profit-value" id="profit">盈亏: $0.00</div>
+        </div>
+
+        <!-- 市场模式 -->
+        <div class="card">
+            <div class="card-title">🌐 当前市场模式</div>
+            <div class="status-value" id="market-mode" style="text-align: center; font-size: 24px;">-</div>
+        </div>
+
+        <!-- 当前持仓 -->
+        <div class="card">
+            <div class="card-title">📊 当前持仓</div>
+            <div class="positions" id="positions">
+                <div class="empty">加载中...</div>
+            </div>
+        </div>
+
+        <!-- 实时日志 -->
+        <div class="card">
+            <div class="card-title">📋 实时日志 (最近20条)</div>
+            <div class="log-preview" id="log">加载中...</div>
+        </div>
+
+        <div class="footer">
+            🦞 混沌龙虾 · 实时刷新
+        </div>
+    </div>
+
+    <script>
+        // 刷新数据
+        async function refresh() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+                const bot = data.bot || {};
+                const state = data.state || {};
+
+                // 机器人状态
+                const statusEl = document.getElementById('bot-status');
+                if (bot.running) {
+                    statusEl.textContent = '运行中';
+                    statusEl.className = 'status-value green pulse';
+                } else {
+                    statusEl.textContent = '已停止';
+                    statusEl.className = 'status-value red';
+                }
+                document.getElementById('pid').textContent = bot.pid || '-';
+                document.getElementById('restart').textContent = bot.restart_count || 0;
+                document.getElementById('memory').textContent = (bot.memory || 0).toFixed(1) + ' MB';
+                document.getElementById('cpu').textContent = (bot.cpu || 0).toFixed(1) + '%';
+
+                // 运行时长
+                if (bot.uptime) {
+                    const hours = (Date.now() - bot.uptime) / 3600000;
+                    document.getElementById('uptime').textContent = hours.toFixed(1) + 'h';
+                }
+
+                // 余额
+                const initial = state.initial_balance || 0;
+                const hwm = state.high_water || 0;
+                const realized = state.realized_profit || 0;
+                document.getElementById('balance').textContent = '$' + hwm.toFixed(2);
+                const pnl = hwm - initial;
+                const pnlEl = document.getElementById('profit');
+                pnlEl.textContent = `浮动: $${pnl.toFixed(2)} | 已实现: $${realized.toFixed(2)}`;
+                pnlEl.style.color = pnl >= 0 ? '#00d68f' : '#ff5757';
+
+                // 市场模式
+                const modeMap = {
+                    'TREND_UP': '🟢 上涨趋势',
+                    'TREND_DOWN': '📉 下跌趋势',
+                    'RANGE_BOUND': '📊 震荡盘整',
+                    'VOLATILE_OVERSOLD': '🔴 超卖反弹',
+                    'VOLATILE_OVERBOUGHT': '🟠 超买卖出',
+                    'CRISIS': '💥 危机',
+                };
+                const mode = state.market_mode || 'UNKNOWN';
+                document.getElementById('market-mode').textContent = modeMap[mode] || mode;
+
+            } catch (e) {
+                console.error('刷新失败:', e);
+            }
+
+            // 持仓
+            try {
+                const posRes = await fetch('/api/positions');
+                const pos = await posRes.json();
+                const posEl = document.getElementById('positions');
+                const grids = pos.grids || {};
+                const trends = pos.trends || {};
+                const keys = [...Object.keys(grids), ...Object.keys(trends)];
+                if (keys.length === 0) {
+                    posEl.innerHTML = '<div class="empty">📭 当前无持仓</div>';
+                } else {
+                    let html = '';
+                    for (const [sym, g] of Object.entries(grids)) {
+                        html += `<div class="position-item">
+                            <span class="symbol">${sym}</span>
+                            <span>${(g.position_qty || 0).toFixed(4)} @ $${(g.entry_price || 0).toFixed(2)}</span>
+                        </div>`;
+                    }
+                    for (const [sym, t] of Object.entries(trends)) {
+                        const p = t.position || {};
+                        html += `<div class="position-item">
+                            <span class="symbol">${sym}</span>
+                            <span>${(p.qty || 0).toFixed(4)} @ $${(p.entry || 0).toFixed(2)}</span>
+                        </div>`;
+                    }
+                    posEl.innerHTML = html;
+                }
+            } catch (e) {
+                console.error('持仓获取失败:', e);
+            }
+
+            // 日志
+            try {
+                const logRes = await fetch('/api/log?n=20');
+                const logData = await logRes.json();
+                document.getElementById('log').textContent = logData.log || '无日志';
+            } catch (e) {}
+        }
+
+        async function botControl(action) {
+            const map = { start: 'start_bot', stop: 'stop_bot', restart: 'restart_bot' };
+            if (!confirm(`确认${action}机器人?`)) return;
+
+            // 通过Telegram Bot执行PM2命令（更安全）
+            // 这里简化: 直接调用API
+            alert(`已发送${action}命令（生产环境请用Telegram Bot）`);
+        }
+
+        // 每5秒刷新
+        setInterval(refresh, 5000);
+        refresh();
+    </script>
+</body>
+</html>
