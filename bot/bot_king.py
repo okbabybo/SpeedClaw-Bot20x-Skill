@@ -167,12 +167,29 @@ def calc_ema(prices, n):
     return ema
 
 def calc_macd(prices, fast=12, slow=26, signal=9):
-    if len(prices) < slow+signal: return 0, 0, 0
+    """v1.4.1修复:返回完整(macd, signal, hist),之前signal始终为0导致金叉检测失效"""
+    if len(prices) < slow + signal: return 0, 0, 0
     ema_fast = calc_ema(prices, fast)
     ema_slow = calc_ema(prices, slow)
     if ema_fast is None or ema_slow is None: return 0, 0, 0
     macd = ema_fast - ema_slow
-    return macd, 0, 0
+    # 计算信号线:MACD的signal周期EMA
+    macd_series = []
+    ema_fast_s = sum(prices[:fast]) / fast
+    ema_slow_s = sum(prices[:slow]) / slow
+    k_fast = 2 / (fast + 1)
+    k_slow = 2 / (slow + 1)
+    for p in prices[fast:]:
+        ema_fast_s = p * k_fast + ema_fast_s * (1 - k_fast)
+        ema_slow_s = p * k_slow + ema_slow_s * (1 - k_slow)
+        macd_series.append(ema_fast_s - ema_slow_s)
+    if len(macd_series) < signal: return macd, 0, 0
+    signal_line = sum(macd_series[:signal]) / signal
+    k_sig = 2 / (signal + 1)
+    for m in macd_series[signal:]:
+        signal_line = m * k_sig + signal_line * (1 - k_sig)
+    hist = macd - signal_line
+    return macd, signal_line, hist
 
 # 币种相关性映射(BTC为标杆)
 # 优化3:加入关联性敞口检查,高相关币种在熊市不能同时重仓
@@ -203,11 +220,12 @@ def calc_adx(klines, period=14):
     pdm, mdm, trs = [], [], []
     for i in range(1, len(klines)):
         h, l, c = float(klines[i][2]), float(klines[i][3]), float(klines[i][4])
-        ph, pl = float(klines[i-1][2]), float(klines[i-1][3])
+        ph, pl, prev_c = float(klines[i-1][2]), float(klines[i-1][3]), float(klines[i-1][4])
         up = h - ph; dn = pl - l
         pdm.append(max(up, dn) if up > dn else 0)
         mdm.append(max(dn, up) if dn > up else 0)
-        tr = max(h-l, abs(h-c), abs(l-c))
+        # v1.4.1修复:TR必须用前一根K线收盘价(prev_c),不是当前c
+        tr = max(h-l, abs(h-prev_c), abs(l-prev_c))
         trs.append(tr)
     if len(trs) < period: return 20
     pdi = sum(pdm[-period:]) / sum(trs[-period:]) * 100 if sum(trs[-period:]) > 0 else 0
@@ -241,9 +259,13 @@ def get_fear_greed():
     return _last_fear_greed
 
 def is_extreme_hour():
+    """v1.4.1修复:UTC时间计算修正,UTC14-18 = 北京22:00-02:00是准的,但还是明确表示"""
     from datetime import datetime
-    h = datetime.utcfromtimestamp(time.time()).hour
-    return 14 <= h <= 18  # UTC14-18 = 北京时间22:00-02:00
+    h_utc = datetime.utcnow().hour
+    h_bj = (h_utc + 8) % 24
+    # 北京时间22:00-02:00 = UTC 14:00-18:00
+    is_extreme = h_bj >= 22 or h_bj < 2
+    return is_extreme
 
 # ===================== 市场模式检测 =====================
 def detect_market_mode(symbol, ex):
@@ -441,6 +463,11 @@ class GridEngine:
         base = self.capital + locked_profit
         per_grid_max = base * 0.35
         return min(per_grid_max, base / (self.max_grids - active))
+
+    def get_min_invest(self):
+        """v1.4.1新增:返回单格最低资金需求(按币种精度计算)"""
+        # 币安现货最小交易额=10 USDT(交易对) + 价格精度
+        return 11  # buy_grid 里 <11 会被拒,这里返回理论下界
 
     def buy_grid(self, idx, price, locked_profit=0, grid_profit=None):
         """v1.2修复:grid_profit参数允许Phase2用不同TP(0.75%),Phase1用1%"""
@@ -1254,16 +1281,24 @@ def main():
                                 pos = grid_engines[sym].positions[idx]
                                 if pos.get('qty', 0) <= 0: continue
                                 sell_qty = pos['qty'] * reduce_pct
-                                # 半卖:不调用完整_sell_grid(那会重置grid),而是手动减仓
-                                proceeds = sell_qty * cur * (1 - 0.001)
+                                if sell_qty <= 0: continue
+                                # v1.4.1修复:同步调API卖单(不只是改本地状态)
+                                try:
+                                    grid_engines[sym].ex.market_sell(grid_engines[sym].symbol, sell_qty)
+                                    _api_success()
+                                except Exception as api_e:
+                                    _api_fail()
+                                    raise api_e
                                 # 减仓对应的网格利润提取(从pending_profit按比例)
                                 if grid_engines[sym].pending_profit > 0:
                                     extract = grid_engines[sym].pending_profit * reduce_pct * 0.5
                                     grid_engines[sym].pending_profit -= extract
                                     sm.realized_profit += extract
                                 pos['qty'] -= sell_qty
-                                grid_engines[sym].data['available_balance'] += proceeds
-                                sm.balance += proceeds
+                                grid_engines[sym].position['qty'] = max(0, sum(
+                                    p['qty'] for p in grid_engines[sym].positions.values()
+                                    if not p.get('sold')
+                                ))
                                 log(f"  → 超买减仓{reduce_pct*100:.0f}% {sym}格{idx} 卖${sell_qty*cur:.2f}")
                             sm.record_win()
                         except Exception as e:
@@ -1289,7 +1324,7 @@ def main():
                             proceeds = sell_qty * cur * (1 - 0.001)
                             eng.position['qty'] -= sell_qty
                             if eng.position['qty'] < 1e-12: eng.position = None
-                            sm.balance += proceeds
+                            # v1.4.1修复:sm没有balance属性,跳过这条无效赋值
                             log(f"  → 超买减仓{reduce_pct*100:.0f}% {sym}趋势 卖${sell_qty*cur:.2f}")
                             sm.record_win()
                         except Exception as e:
