@@ -34,6 +34,11 @@ LOG_FILE = Path('/root/.openclaw/workspace/bot_king.log')
 BOT20X_STATE_FILE = Path('/root/.openclaw/workspace/binance_state.json')
 BOT20X_LOG_FILE = Path('/root/.openclaw/workspace/binance_v40.log')  # 或实际日志路径
 
+# 实时API配置 (老板的币安账户)
+BOT20X_API_KEY = "QccKkNLbtV61rJpOms4h2E0RWoZMfMhG2ar3v9tueF5kbQ6KkN4sUf5CFLLkMhzx"
+BOT20X_SECRET = "Q549z4g3QlOnVs0PDSCzW6Xy2nVt9763DMqWo64MLLDoUeV8MigrUGUQn2nZTDuU"
+BOT20X_SYMBOLS = ['BTCUSDT', 'ETHUSDT']  # Bot20x实际交易币种
+
 
 # ===================== 工具函数 =====================
 def log(msg):
@@ -124,6 +129,106 @@ def tail_bot20x_log(n=20):
         return ''.join(lines[-n:])
     except Exception as e:
         return f"读取Bot20x日志失败: {e}"
+
+
+# ===================== Bot20x 实时API查询 =====================
+_binance_adapter = None
+
+def get_binance_adapter():
+    """获取币安适配器(单例)"""
+    global _binance_adapter
+    if _binance_adapter is None:
+        import sys
+        sys.path.insert(0, '/root/.openclaw/workspace')
+        from exchange_adapter import BinanceAdapter
+        _binance_adapter = BinanceAdapter(BOT20X_API_KEY, BOT20X_SECRET)
+    return _binance_adapter
+
+
+def fetch_bot20x_positions_realtime():
+    """实时查询Bot20x持仓 (调用Binance API)"""
+    try:
+        adapter = get_binance_adapter()
+        positions = []
+        for symbol in BOT20X_SYMBOLS:
+            pos = adapter.get_positions(symbol)
+            if pos:
+                for side_key, info in pos.items():
+                    if info.get('qty', 0) != 0:
+                        positions.append({
+                            'symbol': symbol,
+                            'side': info.get('dir', side_key),
+                            'qty': info.get('qty', 0),
+                            'entry': info.get('entry', 0),
+                        })
+        return positions, None
+    except Exception as e:
+        return [], str(e)
+
+
+def fetch_bot20x_balance_realtime():
+    """实时查询Bot20x余额 (调用Binance API)"""
+    try:
+        adapter = get_binance_adapter()
+        balance = adapter.get_balance()
+        return balance, None
+    except Exception as e:
+        return 0.0, str(e)
+
+
+def fetch_bot20x_full_realtime():
+    """一次性查询余额+所有持仓+未实现盈亏"""
+    try:
+        import requests as req
+        import time as _t
+        import hmac as _hm
+        import hashlib as _hl
+        base = "https://fapi.binance.com"
+        ts = str(int(_t.time() * 1000))
+        query = f"timestamp={ts}"
+        sig = _hm.new(BOT20X_SECRET.encode(), query.encode(), _hl.sha256).hexdigest()
+        url = f"{base}/fapi/v2/account?{query}&signature={sig}"
+        r = req.get(url, headers={"X-MBX-APIKEY": BOT20X_API_KEY}, timeout=10).json()
+
+        balance = float(r.get('availableBalance', 0))
+        unrealized = float(r.get('totalUnrealizedProfit', 0))
+        margin_used = float(r.get('totalInitialMargin', 0))
+        wallet_total = float(r.get('totalWalletBalance', 0))
+
+        # 查询持仓
+        positions = []
+        for sym in BOT20X_SYMBOLS:
+            ts2 = str(int(_t.time() * 1000))
+            q2 = f"symbol={sym}&timestamp={ts2}"
+            sig2 = _hm.new(BOT20X_SECRET.encode(), q2.encode(), _hl.sha256).hexdigest()
+            url2 = f"{base}/fapi/v2/positionRisk?{q2}&signature={sig2}"
+            data = req.get(url2, headers={"X-MBX-APIKEY": BOT20X_API_KEY}, timeout=10).json()
+            if isinstance(data, list):
+                for p in data:
+                    amt = float(p.get('positionAmt', 0))
+                    if amt != 0:
+                        side = 'LONG' if amt > 0 else 'SHORT'
+                        positions.append({
+                            'symbol': p['symbol'],
+                            'side': side,
+                            'qty': abs(amt),
+                            'entry': float(p.get('entryPrice', 0)),
+                            'mark': float(p.get('markPrice', 0)),
+                            'pnl': float(p.get('unRealizedProfit', 0)),
+                            'leverage': int(float(p.get('leverage', 1))),
+                            'marginType': p.get('marginType', 'cross'),
+                        })
+
+        return {
+            'balance': balance,
+            'unrealized': unrealized,
+            'wallet_total': wallet_total,
+            'margin_used': margin_used,
+            'positions': positions,
+            'total_equity': balance + unrealized,
+        }, None
+    except Exception as e:
+        return None, str(e)
 
 
 def send_long_message(update, text):
@@ -389,72 +494,96 @@ async def cmd_kstatus_bot20x(update, context):
 
 
 async def cmd_kbalance_bot20x(update, context):
-    state = read_bot20x_state()
-    wallet = state.get('wallet', 0)
-    daily_pnl = state.get('daily_pnl', 0)
-    positions = state.get('positions', [])
-    unrealized = sum(p.get('pnl', 0) for p in positions)
+    """Bot20x余额 - 实时API"""
+    await update.message.reply_text("🔄 查询Binance实时数据...")
+    data, err = fetch_bot20x_full_realtime()
 
-    msg = f"""💰 Bot20x 账户状态
+    if err:
+        await update.message.reply_text(f"❌ 查询失败: {err}")
+        return
 
-💵 钱包余额：${wallet:.2f}
-📅 今日盈亏：${daily_pnl:+.2f}
+    balance = data['balance']
+    unrealized = data['unrealized']
+    total = data['total_equity']
+
+    msg = f"""💰 Bot20x 账户状态 (实时)
+
+💵 可用余额：${balance:.2f}
 📊 未实现盈亏：${unrealized:+.2f}
-📈 总权益：${wallet + unrealized:.2f}
+📈 总权益：${total:.2f}
+💼 钱包总额：${data['wallet_total']:.2f}
+📦 已用保证金：${data['margin_used']:.2f}
 
-数据来源：binance_state.json
-查询时间：{datetime.now().strftime('%H:%M:%S')}
+⚡ 实时查询 Binance API
+⏰ 查询时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """
     await update.message.reply_text(msg)
 
 
 async def cmd_kpositions_bot20x(update, context):
-    state = read_bot20x_state()
-    positions = state.get('positions', [])
+    """Bot20x持仓 - 实时API"""
+    await update.message.reply_text("🔄 查询Binance实时持仓...")
+    data, err = fetch_bot20x_full_realtime()
 
-    if not positions:
-        await update.message.reply_text("📭 Bot20x 当前无持仓")
+    if err:
+        await update.message.reply_text(f"❌ 查询失败: {err}")
         return
 
-    msg = "📊 Bot20x 当前持仓\n\n"
+    positions = data['positions']
+    if not positions:
+        await update.message.reply_text(
+            "📭 Bot20x 当前无持仓\n\n"
+            f"💵 可用余额：${data['balance']:.2f}\n"
+            f"⚡ 实时查询 Binance API\n"
+            f"⏰ {datetime.now().strftime('%H:%M:%S')}"
+        )
+        return
+
+    msg = "📊 Bot20x 当前持仓 (实时)\n\n"
     for p in positions:
-        symbol = p.get('symbol', '?')
-        side = p.get('side', '?')
-        side_emoji = '🟢LONG' if side == 'LONG' else '🔴SHORT'
-        entry = p.get('entry', 0)
-        qty = p.get('qty', 0)
-        pnl = p.get('pnl', 0)
-        pnl_emoji = '🟢' if pnl >= 0 else '🔴'
-        sl = p.get('sl', 0)
-        tp = p.get('tp', 0)
-        msg += f"""  • {symbol} {side_emoji}
-    开仓价：${entry:.2f}
-    数量：{qty}
-    盈亏：{pnl_emoji} ${pnl:+.2f}
-    止损：${sl:.2f}
-    止盈：${tp:.2f}
+        side_emoji = '🟢LONG' if p['side'] == 'LONG' else '🔴SHORT'
+        pnl_emoji = '🟢' if p['pnl'] >= 0 else '🔴'
+        msg += f"""  • {p['symbol']} {side_emoji} {p['leverage']}x
+    开仓价：${p['entry']:.2f}
+    标记价：${p['mark']:.2f}
+    数量：{p['qty']}
+    盈亏：{pnl_emoji} ${p['pnl']:+.2f}
+    模式：{p['marginType']}
 
 """
+    msg += f"💵 可用余额：${data['balance']:.2f}\n"
+    msg += f"📊 未实现盈亏：${data['unrealized']:+.2f}\n"
+    msg += f"⚡ 实时 Binance API"
     await update.message.reply_text(msg)
 
 
 async def cmd_kprofit_bot20x(update, context):
-    state = read_bot20x_state()
-    wallet = state.get('wallet', 0)
-    positions = state.get('positions', [])
-    unrealized = sum(p.get('pnl', 0) for p in positions)
-    daily_pnl = state.get('daily_pnl', 0)
-    total_equity = wallet + unrealized
+    """Bot20x盈亏 - 实时API"""
+    await update.message.reply_text("🔄 查询Binance实时盈亏...")
+    data, err = fetch_bot20x_full_realtime()
 
-    msg = f"""📈 Bot20x 盈亏详情
+    if err:
+        await update.message.reply_text(f"❌ 查询失败: {err}")
+        return
 
-💵 钱包余额：${wallet:.2f}
-📅 今日盈亏：${daily_pnl:+.2f}
-📊 未实现盈亏：${unrealized:+.2f}
-📈 总权益：${total_equity:.2f}
+    msg = f"""📈 Bot20x 盈亏详情 (实时)
 
-查询时间：{datetime.now().strftime('%H:%M:%S')}
+💵 可用余额：${data['balance']:.2f}
+📊 未实现盈亏：${data['unrealized']:+.2f}
+📈 总权益：${data['total_equity']:.2f}
+💼 钱包总额：${data['wallet_total']:.2f}
+📦 已用保证金：${data['margin_used']:.2f}
+
+📋 持仓数：{len(data['positions'])}
 """
+    if data['positions']:
+        for p in data['positions']:
+            side = p['side']
+            pnl = p['pnl']
+            pnl_e = '🟢' if pnl >= 0 else '🔴'
+            msg += f"  • {p['symbol']} {side} 盈亏：{pnl_e} ${pnl:+.2f}\n"
+
+    msg += f"\n⚡ 实时 Binance API\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     await update.message.reply_text(msg)
 
 
