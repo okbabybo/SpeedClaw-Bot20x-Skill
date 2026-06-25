@@ -1,0 +1,19 @@
+# BotKing v1.4.3 配置文件模板
+# 复制为 config_exchange.yaml 并填入你的API密钥
+# 推荐权限: 仅勾选"启用现货交易"+"启用读取", 不要勾选提币
+
+exchanges:
+  - name: binance
+    api_key: "YOUR_BINANCE_API_KEY"
+    secret: "YOUR_BINANCE_SECRET"
+
+# 交易币种
+coins:
+  - BTCUSDT
+  - ETHUSDT
+  # 可选: BNBUSDT, SOLUSDT, AVAXUSDT, XRPUSDT, TONUSDT
+
+# 日志和状态
+log_file: /root/.openclaw/workspace/bot_king.log
+state_dir: /root/.openclaw/workspace/
+state_file: bot_king_state.json

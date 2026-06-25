@@ -1,0 +1,23 @@
+# Docker Compose 配置
+# 用法: docker-compose up -d
+# 注意: 需要先在 config_exchange.yaml 配置API密钥
+
+version: '3.8'
+
+services:
+  bot-king:
+    build: .
+    container_name: speedclaw-botking
+    restart: always
+    volumes:
+      - ./bot/config_exchange.yaml:/app/bot/config_exchange.yaml:ro
+      - ./logs:/app/logs
+      - ./data:/app/data
+    environment:
+      - TZ=Asia/Shanghai
+      - PYTHONUNBUFFERED=1
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
