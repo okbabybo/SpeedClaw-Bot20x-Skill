@@ -39,6 +39,16 @@ BOT20X_API_KEY = "QccKkNLbtV61rJpOms4h2E0RWoZMfMhG2ar3v9tueF5kbQ6KkN4sUf5CFLLkMh
 BOT20X_SECRET = "Q549z4g3QlOnVs0PDSCzW6Xy2nVt9763DMqWo64MLLDoUeV8MigrUGUQn2nZTDuU"
 BOT20X_SYMBOLS = ['BTCUSDT', 'ETHUSDT']  # Bot20x实际交易币种
 
+# 权限管理
+import sys
+sys.path.insert(0, str(Path(__file__).parent))
+from botking_auth import (
+    load_users, save_users, get_user_level,
+    register_user, generate_activation_code, activate_code,
+    bind_api, get_user_api, list_users, is_owner, is_admin,
+    OWNER_TELEGRAM_ID,
+)
+
 
 # ===================== 工具函数 =====================
 def log(msg):
@@ -176,8 +186,13 @@ def fetch_bot20x_balance_realtime():
         return 0.0, str(e)
 
 
-def fetch_bot20x_full_realtime():
+def fetch_bot20x_full_realtime(api_key=None, api_secret=None):
     """一次性查询余额+所有持仓+未实现盈亏"""
+    # 如果未传api_key,用全局默认(老板的)
+    if not api_key or not api_secret:
+        api_key = BOT20X_API_KEY
+        api_secret = BOT20X_SECRET
+
     try:
         import requests as req
         import time as _t
@@ -186,9 +201,9 @@ def fetch_bot20x_full_realtime():
         base = "https://fapi.binance.com"
         ts = str(int(_t.time() * 1000))
         query = f"timestamp={ts}"
-        sig = _hm.new(BOT20X_SECRET.encode(), query.encode(), _hl.sha256).hexdigest()
+        sig = _hm.new(api_secret.encode(), query.encode(), _hl.sha256).hexdigest()
         url = f"{base}/fapi/v2/account?{query}&signature={sig}"
-        r = req.get(url, headers={"X-MBX-APIKEY": BOT20X_API_KEY}, timeout=10).json()
+        r = req.get(url, headers={"X-MBX-APIKEY": api_key}, timeout=10).json()
 
         balance = float(r.get('availableBalance', 0))
         unrealized = float(r.get('totalUnrealizedProfit', 0))
@@ -200,9 +215,9 @@ def fetch_bot20x_full_realtime():
         for sym in BOT20X_SYMBOLS:
             ts2 = str(int(_t.time() * 1000))
             q2 = f"symbol={sym}&timestamp={ts2}"
-            sig2 = _hm.new(BOT20X_SECRET.encode(), q2.encode(), _hl.sha256).hexdigest()
+            sig2 = _hm.new(api_secret.encode(), q2.encode(), _hl.sha256).hexdigest()
             url2 = f"{base}/fapi/v2/positionRisk?{q2}&signature={sig2}"
-            data = req.get(url2, headers={"X-MBX-APIKEY": BOT20X_API_KEY}, timeout=10).json()
+            data = req.get(url2, headers={"X-MBX-APIKEY": api_key}, timeout=10).json()
             if isinstance(data, list):
                 for p in data:
                     amt = float(p.get('positionAmt', 0))
@@ -255,25 +270,53 @@ def send_long_message(update, text):
 
 # ===================== Telegram 机器人命令 =====================
 async def cmd_start(update, context):
-    msg = """🦞 SpeedClaw BotKing 控制面板
+    """欢迎语 + 自动注册"""
+    user = update.effective_user
+    db = load_users()
 
-欢迎使用 BotKing 现货量化机器人！
+    # 检查/初始化Owner
+    if db.get('owner') is None and OWNER_TELEGRAM_ID != 0:
+        db['owner'] = {
+            'telegram_id': str(OWNER_TELEGRAM_ID),
+            'set_at': time.time(),
+        }
+        save_users(db)
 
-可用命令：
-/status   - 查看机器人状态
-/balance  - 查看账户余额
-/positions - 查看当前持仓
-/mode     - 当前市场模式
-/profit   - 累计盈亏
-/log      - 查看最近日志
-/help     - 帮助信息
+    # 自动注册
+    register_user(db, user.id, user.username or '', user.first_name or '')
+    level = get_user_level(db, user.id)
 
-启停控制：
-/start_bot  - 启动机器人
-/stop_bot   - 停止机器人
-/restart_bot - 重启机器人
+    level_badge = {
+        'owner': '👑 Owner (老板)',
+        'admin': '🛡️ Admin (订阅会员)',
+        'user': '👤 User (免费用户)',
+        'unknown': '👋 未注册',
+    }.get(level, level)
+
+    msg = f"""🦞 SpeedClaw BotKing 量化机器人
+
+欢迎，{user.first_name or '朋友'}！
+身份：{level_badge}
+ID：`{user.id}`
+
+══════ 🆓 免费功能 ══════
+/mysub   - 我的订阅状态
+/subscribe - 查看订阅方案
+/help    - 完整命令菜单
+
+══════ 💰 订阅后可用 ══════
+• 查看自己账户的实时余额/持仓
+• 控制自己的BotKing机器人
+• 查看自己的Bot20x合约状态
+• 多设备同步监控
+
+══════ 💳 订阅价格 ══════
+年付：$399.9 USDT (BSC BEP20)
+终身：$999 USDT
+
+📧 联系Owner: @Okbabybo
 """
-    await update.message.reply_text(msg)
+    await update.message.reply_text(msg, parse_mode='Markdown')
 
 
 async def cmd_status(update, context):
@@ -459,6 +502,284 @@ async def cmd_restart_bot(update, context):
 
 
 # ===================== Bot20x 命令 =====================
+async def cmd_subscribe(update, context):
+    """查看订阅方案"""
+    msg = """💳 SpeedClaw BotKing 订阅方案
+
+═══════════════════════
+🟡 BotKing 现货网格机器人
+   • 6个币种 (BTC/ETH/BNB/SOL/AVAX/XRP)
+   • 7种市场模式自动识别
+   • 9层风控保护
+   • Phase2 复利滚仓
+   • 综合评分 9.2/10
+═══════════════════════
+
+💰 订阅价格:
+
+1️⃣ 年付会员
+   💵 $399.9 USDT
+   ⏰ 有效期 365天
+   ✨ 包含: 源码 + 1年更新 + 技术支持
+
+2️⃣ 终身会员
+   💵 $999 USDT
+   ♾️ 永久使用
+   ✨ 包含: 源码 + 终身更新 + 优先支持
+
+═══════════════════════
+💳 支付方式:
+
+USDT (推荐) - BSC (BEP20) 网络
+地址: 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1
+金额: 对应套餐价格 + 备注您的Telegram ID
+
+📧 支付完成后:
+   1. 截图发送到此机器人
+   2. Owner会为您生成激活码
+   3. 输入激活码: /activate <激活码>
+
+═══════════════════════
+❓ 问题联系: @Okbabybo
+"""
+    await update.message.reply_text(msg)
+
+
+async def cmd_mysub(update, context):
+    """查看我的订阅"""
+    user = update.effective_user
+    db = load_users()
+    level = get_user_level(db, user.id)
+
+    level_name = {
+        'owner': '👑 Owner',
+        'admin': '🛡️ Admin (订阅会员)',
+        'expired': '⏰ 已过期',
+        'user': '👤 免费用户',
+        'unknown': '👋 未注册',
+    }.get(level, level)
+
+    msg = f"""📋 我的订阅状态
+
+ID：`{user.id}`
+用户名：{user.username or '未设置'}
+姓名：{user.first_name or '未设置'}
+身份：{level_name}
+"""
+    if level == 'admin':
+        admin = db['admins'].get(str(user.id), {})
+        expire = admin.get('expire_at', 0)
+        remain = expire - time.time()
+        days = int(remain / 86400)
+        plan = admin.get('plan', 'unknown')
+        api_bound = bool(admin.get('api_key'))
+        msg += f"""
+套餐：{plan}
+剩余天数：{days} 天
+到期时间：{datetime.fromtimestamp(expire).strftime('%Y-%m-%d')}
+API绑定：{'✅ 已绑定' if api_bound else '❌ 未绑定'}
+
+💡 下一步：
+{'API未绑定 - 输入 /bindapi' if not api_bound else '订阅生效中 - 享受全部功能'}
+"""
+
+    elif level == 'user' or level == 'unknown':
+        msg += """
+⏰ 未订阅
+
+💡 下一步：
+1. /subscribe 查看订阅方案
+2. USDT支付 (BSC网络)
+3. /activate <激活码> 激活
+"""
+
+    elif level == 'expired':
+        msg += """
+⏰ 订阅已过期
+
+💡 续订联系Owner: @Okbabybo
+"""
+
+    await update.message.reply_text(msg, parse_mode='Markdown')
+
+
+async def cmd_activate(update, context):
+    """激活码激活"""
+    user = update.effective_user
+    if not context.args:
+        await update.message.reply_text(
+            "请输入激活码：\n"
+            "/activate ABC123XYZ456\n\n"
+            "激活码在支付后由Owner提供"
+        )
+        return
+
+    code = context.args[0]
+    db = load_users()
+    success, msg = activate_code(db, user.id, code)
+    if success:
+        await update.message.reply_text(
+            f"✅ {msg}\n\n"
+            f"🎉 欢迎订阅SpeedClaw BotKing！\n\n"
+            f"📋 下一步:\n"
+            f"1. /bindapi 绑定你的Binance API\n"
+            f"2. /kbalance 查看你的账户余额\n"
+            f"3. /help 查看所有可用命令\n\n"
+            f"💡 联系: @Okbabybo"
+        )
+    else:
+        await update.message.reply_text(f"❌ {msg}")
+
+
+async def cmd_bindapi(update, context):
+    """绑定用户自己的Binance API"""
+    user = update.effective_user
+    db = load_users()
+    level = get_user_level(db, user.id)
+
+    if level not in ('owner', 'admin'):
+        await update.message.reply_text(
+            "🚫 此功能仅订阅会员可用\n\n"
+            "请先 /subscribe 查看订阅方案"
+        )
+        return
+
+    if not context.args or len(context.args) < 2:
+        await update.message.reply_text(
+            "📝 绑定Binance API\n\n"
+            "格式:\n"
+            "/bindapi <API_KEY> <SECRET>\n\n"
+            "示例:\n"
+            "/bindapi xxxxxxxxxxxx yyyyyyyyy\n\n"
+            "⚠️ 安全提示:\n"
+            "• 仅勾选'启用现货交易'+'启用读取'\n"
+            "• 不要勾选'启用提币'\n"
+            "• API密钥仅保存在本地"
+        )
+        return
+
+    api_key = context.args[0]
+    api_secret = context.args[1]
+    success, msg = bind_api(db, user.id, api_key, api_secret)
+    if success:
+        await update.message.reply_text(
+            f"✅ {msg}\n\n"
+            f"你现在可以:\n"
+            f"• /kbalance 查看你的账户余额\n"
+            f"• /kpositions 查看你的持仓\n"
+            f"• /xbalance 查看你的合约余额"
+        )
+    else:
+        await update.message.reply_text(f"❌ {msg}")
+
+
+async def cmd_myapi(update, context):
+    """查看API绑定状态"""
+    user = update.effective_user
+    db = load_users()
+    api_key, api_secret = get_user_api(db, user.id)
+
+    if api_key:
+        masked = api_key[:8] + "..." + api_key[-4:]
+        await update.message.reply_text(
+            f"✅ API已绑定\n\n"
+            f"Key: {masked}\n"
+            f"状态: {'活跃' if get_user_level(db, user.id) in ('owner', 'admin') else '未激活'}"
+        )
+    else:
+        await update.message.reply_text(
+            "❌ 未绑定API\n\n"
+            "请使用 /bindapi 绑定"
+        )
+
+
+# ===================== Owner 命令 =====================
+async def cmd_gencode(update, context):
+    """Owner生成激活码"""
+    user = update.effective_user
+    db = load_users()
+    if not is_owner(db, user.id):
+        await update.message.reply_text("🚫 仅Owner可生成激活码")
+        return
+
+    duration = 365  # 默认年付
+    if context.args:
+        try:
+            duration = int(context.args[0])
+        except:
+            pass
+
+    plan = 'lifetime' if duration >= 3650 else 'yearly' if duration >= 365 else f'{duration}d'
+    code = generate_activation_code(db, duration_days=duration, plan=plan)
+    await update.message.reply_text(
+        f"🎫 激活码生成成功\n\n"
+        f"激活码：`{code}`\n"
+        f"有效期：{duration} 天 ({plan})\n\n"
+        f"📋 使用方法:\n"
+        f"发给用户: /activate {code}\n\n"
+        f"⚠️ 一次使用，请妥善保存"
+    )
+
+
+async def cmd_listusers(update, context):
+    """Owner查看所有用户"""
+    user = update.effective_user
+    db = load_users()
+    if not is_owner(db, user.id):
+        await update.message.reply_text("🚫 仅Owner可查看用户列表")
+        return
+
+    users = db.get('users', {})
+    admins = db.get('admins', {})
+    pending = db.get('pending_codes', {})
+
+    msg = f"""📋 用户列表
+
+👑 Owner: {db.get('owner', {}).get('telegram_id', '未设置')}
+
+🛡️ Admin (订阅会员): {len(admins)} 人
+"""
+    for uid, info in list(admins.items())[:10]:
+        expire = datetime.fromtimestamp(info.get('expire_at', 0))
+        api = '✅' if info.get('api_key') else '❌'
+        msg += f"  • `{uid}` {info.get('plan', '?')} 到期:{expire.strftime('%m-%d')} API:{api}\n"
+
+    msg += f"\n👤 Free Users: {len(users)} 人\n"
+    for uid, info in list(users.items())[:5]:
+        msg += f"  • `{uid}` @{info.get('username', '')} {info.get('first_name', '')}\n"
+
+    unused_codes = [c for c, info in pending.items() if not info.get('used_by')]
+    msg += f"\n🎫 未使用激活码: {len(unused_codes)} 张"
+
+    await update.message.reply_text(msg, parse_mode='Markdown')
+
+
+async def cmd_grant(update, context):
+    """Owner直接授权用户"""
+    user = update.effective_user
+    db = load_users()
+    if not is_owner(db, user.id):
+        await update.message.reply_text("🚫 仅Owner可授权用户")
+        return
+
+    if not context.args:
+        await update.message.reply_text("用法: /grant <telegram_id> [天数]")
+        return
+
+    target_id = context.args[0]
+    duration = int(context.args[1]) if len(context.args) > 1 else 365
+
+    db['admins'][target_id] = {
+        'telegram_id': target_id,
+        'activated_at': time.time(),
+        'expire_at': time.time() + duration * 86400,
+        'plan': f'{duration}d',
+        'granted_by': str(user.id),
+    }
+    save_users(db)
+    await update.message.reply_text(
+        f"✅ 用户 `{target_id}` 已授权 {duration} 天"
+    )
 async def cmd_kstatus_bot20x(update, context):
     pm2 = get_bot20x_status()
     state = read_bot20x_state()
@@ -494,9 +815,25 @@ async def cmd_kstatus_bot20x(update, context):
 
 
 async def cmd_kbalance_bot20x(update, context):
-    """Bot20x余额 - 实时API"""
+    """Bot20x余额 - 实时API (支持用户自己的API)"""
+    user = update.effective_user
+    db = load_users()
+    api_key, api_secret = get_user_api(db, user.id)
+
+    # Owner未绑定时使用默认
+    if get_user_level(db, user.id) == 'owner' and not api_key:
+        api_key, api_secret = BOT20X_API_KEY, BOT20X_SECRET
+
+    if not api_key:
+        await update.message.reply_text(
+            "❌ 未绑定API\n\n"
+            "请先 /bindapi 绑定你的Binance API\n"
+            "或 /subscribe 查看订阅方案"
+        )
+        return
+
     await update.message.reply_text("🔄 查询Binance实时数据...")
-    data, err = fetch_bot20x_full_realtime()
+    data, err = fetch_bot20x_full_realtime(api_key, api_secret)
 
     if err:
         await update.message.reply_text(f"❌ 查询失败: {err}")
@@ -521,9 +858,20 @@ async def cmd_kbalance_bot20x(update, context):
 
 
 async def cmd_kpositions_bot20x(update, context):
-    """Bot20x持仓 - 实时API"""
+    """Bot20x持仓 - 实时API (支持用户自己的API)"""
+    user = update.effective_user
+    db = load_users()
+    api_key, api_secret = get_user_api(db, user.id)
+
+    if get_user_level(db, user.id) == 'owner' and not api_key:
+        api_key, api_secret = BOT20X_API_KEY, BOT20X_SECRET
+
+    if not api_key:
+        await update.message.reply_text("❌ 未绑定API，请 /bindapi")
+        return
+
     await update.message.reply_text("🔄 查询Binance实时持仓...")
-    data, err = fetch_bot20x_full_realtime()
+    data, err = fetch_bot20x_full_realtime(api_key, api_secret)
 
     if err:
         await update.message.reply_text(f"❌ 查询失败: {err}")
@@ -532,7 +880,7 @@ async def cmd_kpositions_bot20x(update, context):
     positions = data['positions']
     if not positions:
         await update.message.reply_text(
-            "📭 Bot20x 当前无持仓\n\n"
+            "📭 当前无持仓\n\n"
             f"💵 可用余额：${data['balance']:.2f}\n"
             f"⚡ 实时查询 Binance API\n"
             f"⏰ {datetime.now().strftime('%H:%M:%S')}"
@@ -558,9 +906,20 @@ async def cmd_kpositions_bot20x(update, context):
 
 
 async def cmd_kprofit_bot20x(update, context):
-    """Bot20x盈亏 - 实时API"""
+    """Bot20x盈亏 - 实时API (支持用户自己的API)"""
+    user = update.effective_user
+    db = load_users()
+    api_key, api_secret = get_user_api(db, user.id)
+
+    if get_user_level(db, user.id) == 'owner' and not api_key:
+        api_key, api_secret = BOT20X_API_KEY, BOT20X_SECRET
+
+    if not api_key:
+        await update.message.reply_text("❌ 未绑定API，请 /bindapi")
+        return
+
     await update.message.reply_text("🔄 查询Binance实时盈亏...")
-    data, err = fetch_bot20x_full_realtime()
+    data, err = fetch_bot20x_full_realtime(api_key, api_secret)
 
     if err:
         await update.message.reply_text(f"❌ 查询失败: {err}")
@@ -782,42 +1141,50 @@ async def cmd_help(update, context):
     """帮助菜单 - 修复版：纯文本不用Markdown"""
     msg = """🦞 BotKing & Bot20x 控制面板
 
-══════ 🟡 BotKing 现货 ══════
-/kstatus   - BotKing 状态
-/kbalance  - BotKing 余额
-/kpositions - BotKing 持仓
-/kmode     - BotKing 市场模式
-/kprofit   - BotKing 盈亏
-/klog [N]  - BotKing 日志
+══════ 🆓 免费功能 ══════
+/mysub       - 我的订阅状态
+/subscribe   - 查看订阅方案
 
-══════ 🟢 Bot20x 合约 ══════
-/xstatus   - Bot20x 状态
-/xbalance  - Bot20x 余额
-/xpositions - Bot20x 持仓
-/xpositions_all - Bot20x 全部持仓详情
-/xprofit   - Bot20x 盈亏
-/xlog [N]  - Bot20x 日志
+══════ 🛡️ Admin (订阅后) ══════
+BotKing 现货：
+/kstatus     - BotKing 状态
+/kbalance    - BotKing 余额
+/kpositions  - BotKing 持仓
+/kmode       - BotKing 市场模式
+/kprofit     - BotKing 盈亏
+/klog [N]    - BotKing 日志
 
-══════ 🤖 启停控制 ══════
-/start_bot  - 启动 BotKing
-/stop_bot   - 停止 BotKing
-/restart_bot - 重启 BotKing
-/start_bot20x - 启动 Bot20x
-/stop_bot20x  - 停止 Bot20x
+Bot20x 合约：
+/xstatus     - Bot20x 状态
+/xbalance    - Bot20x 余额
+/xpositions  - Bot20x 持仓
+/xprofit     - Bot20x 盈亏
+/xlog [N]    - Bot20x 日志
+
+启停控制：
+/start_bot      - 启动 BotKing
+/stop_bot       - 停止 BotKing
+/restart_bot    - 重启 BotKing
+/start_bot20x   - 启动 Bot20x
+/stop_bot20x    - 停止 Bot20x
 /restart_bot20x - 重启 Bot20x
 
+API管理：
+/bindapi       - 绑定你的Binance API
+/myapi         - 查看API绑定状态
+
+══════ 👑 Owner专用 ══════
+/gencode [天数] - 生成激活码
+/listusers     - 查看所有用户
+/grant <id>    - 授权用户
+
 ══════ 🦞 自然语言 ══════
-直接说中文口语，如：
-• "看一下状态"
-• "我还有多少钱"
-• "持仓怎么样"
-• "干起来"
-• "重启"
-• "帮助"
+"现货余额" "Bot20x状态" "持仓怎么样"
+"启动合约" "重启" "帮助"
 
 ══════ 风险提示 ══════
-⚠️ 启停操作有风险，谨慎使用
-⚠️ 所有操作记录到 bot_king.log
+⚠️ 启停操作谨慎使用
+⚠️ 所有操作记录到日志
 
 ═══════════════════
 v1.4.3 · @Okbabybo
@@ -900,6 +1267,14 @@ def main():
     app_tg.add_handler(CommandHandler("stop_bot", cmd_stop_bot))
     app_tg.add_handler(CommandHandler("restart_bot", cmd_restart_bot))
     app_tg.add_handler(CommandHandler("help", cmd_help))
+    app_tg.add_handler(CommandHandler("subscribe", cmd_subscribe))
+    app_tg.add_handler(CommandHandler("mysub", cmd_mysub))
+    app_tg.add_handler(CommandHandler("activate", cmd_activate))
+    app_tg.add_handler(CommandHandler("bindapi", cmd_bindapi))
+    app_tg.add_handler(CommandHandler("myapi", cmd_myapi))
+    app_tg.add_handler(CommandHandler("gencode", cmd_gencode))
+    app_tg.add_handler(CommandHandler("listusers", cmd_listusers))
+    app_tg.add_handler(CommandHandler("grant", cmd_grant))
 
     # Bot20x 命令
     app_tg.add_handler(CommandHandler("xstatus", cmd_kstatus_bot20x))
