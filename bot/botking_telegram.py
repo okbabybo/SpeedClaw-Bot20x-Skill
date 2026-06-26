@@ -894,6 +894,7 @@ async def cmd_gencode(update, context):
         '59': 'monthly', '59u': 'monthly',
         '399': 'yearly', '399u': 'yearly',
         '1299': 'lifetime', '1299u': 'lifetime',
+        '1999': 'lifetime', '1999u': 'lifetime',
         '30': 'monthly', '365': 'yearly', '36500': 'lifetime',
     }
 
@@ -1271,7 +1272,7 @@ INTENT_KEYWORDS = {
     'subscribe_20x':  ['合约订阅', '20x订阅', 'bot20x订阅', '合约会员', '合约怎么订阅'],
     'plan_monthly':  ['月付', '月度', '按月', '59', '59u', '59usdt', '一月', '包月'],
     'plan_yearly':   ['年付', '年度', '按年', '399', '399u', '399usdt', '一年', '包年', '年会员', '年订阅'],
-    'plan_lifetime': ['终身', '永久', '1299', '1299u', '1299usdt', '买断', '一次买断', '终身会员', '终身订阅', '不限期'],
+    'plan_lifetime': ['终身', '永久', '1299', '1299u', '1299usdt', '1999', '1999u', '买断', '一次买断', '终身会员', '终身订阅', '不限期'],
 
     # Owner生成激活码 (仅Owner可用，但识别要给提示)
     'gencode': ['生成激活码', '生成月付激活码', '生成年付激活码', '生成终身激活码', '生成现货激活码', '生成合约激活码', '生成通票激活码', '生成现货年付激活码', '生成合约年付激活码', '生成现货月付激活码', '生成合约月付激活码', '生成现货终身激活码', '生成合约终身激活码', '出个码', '给我个码', '生成一个码', '要个激活码', '发个激活码', 'gencode'],
@@ -1415,7 +1416,7 @@ async def handle_natural_language(update, context):
             plan_arg = '月付'
         elif '年付' in text or '年' in text or '399' in text:
             plan_arg = '年付'
-        elif '终身' in text or '永久' in text or '1299' in text:
+        elif '终身' in text or '永久' in text or '1299' in text or '1999' in text:
             plan_arg = '终身'
 
         product_arg = None
