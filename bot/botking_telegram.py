@@ -1366,6 +1366,249 @@ async def handle_natural_language(update, context):
         await cmd_gencode(update, context)
 
 
+# ===================== 半自动订阅支付验证 =====================
+PENDING_PAYMENTS_FILE = Path('/root/.openclaw/workspace/.pending_payments.json')
+
+
+def load_pending_payments():
+    if not PENDING_PAYMENTS_FILE.exists():
+        return {}
+    try:
+        with open(PENDING_PAYMENTS_FILE) as f:
+            return json.load(f)
+    except:
+        return {}
+
+
+def save_pending_payments(payments):
+    with open(PENDING_PAYMENTS_FILE, 'w') as f:
+        json.dump(payments, f, indent=2, ensure_ascii=False)
+
+
+async def handle_payment_proof(update, context):
+    """处理客户发的支付截图 (半自动验证流程)"""
+    user = update.effective_user
+    caption = (update.message.caption or '').strip()
+    photo = update.message.photo[-1] if update.message.photo else None
+
+    if not photo:
+        return
+
+    # 1. 自动识别套餐金额 (从caption提取)
+    detected_plan = None
+    detected_amount = None
+
+    # 检查caption是否包含金额或套餐关键词
+    caption_lower = caption.lower()
+    for plan_key, p in SUBSCRIPTION_PLANS.items():
+        if p['label'] in caption or str(p['price']) in caption:
+            detected_plan = plan_key
+            detected_amount = p['price']
+            break
+
+    # 如果caption没说明，让用户在下一步选择
+    pending = load_pending_payments()
+    payment_id = f"{user.id}_{int(time.time())}"
+
+    pending[payment_id] = {
+        'payment_id': payment_id,
+        'user_id': str(user.id),
+        'username': user.username or '',
+        'first_name': user.first_name or '',
+        'photo_file_id': photo.file_id,
+        'caption': caption,
+        'detected_plan': detected_plan,
+        'detected_amount': detected_amount,
+        'status': 'pending',  # pending / approved / rejected
+        'created_at': time.time(),
+        'code': None,
+    }
+    save_pending_payments(pending)
+
+    # 2. 给客户回复 (要求确认套餐)
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    keyboard = []
+    for plan_key, p in SUBSCRIPTION_PLANS.items():
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{p['emoji']} {p['label']} ${p['price']}",
+                callback_data=f"pay_select_{payment_id}_{plan_key}"
+            )
+        ])
+
+    reply = (
+        f"✅ 已收到支付截图\n\n"
+        f"订单号: {payment_id}\n"
+        f"📋 请确认您选择的套餐:"
+    )
+    if detected_plan:
+        p = SUBSCRIPTION_PLANS[detected_plan]
+        reply = (
+            f"✅ 已收到支付截图\n\n"
+            f"订单号: {payment_id}\n"
+            f"🎯 从备注识别: {p['emoji']} **{p['label']}** ${p['price']} USDT\n\n"
+            f"请确认或选择其他套餐:"
+        )
+
+    await update.message.reply_text(
+        reply,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
+
+
+async def handle_payment_callback(update, context):
+    """处理客户选择的套餐 + 推送给Owner审核"""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    # 客户选套餐: pay_select_{payment_id}_{plan}
+    if data.startswith('pay_select_'):
+        _, _, payment_id, plan_key = data.split('_', 3)
+        pending = load_pending_payments()
+        if payment_id not in pending:
+            await query.edit_message_text("❌ 订单不存在或已过期")
+            return
+
+        payment = pending[payment_id]
+        payment['detected_plan'] = plan_key
+        payment['user_choice_at'] = time.time()
+        save_pending_payments(pending)
+
+        p = SUBSCRIPTION_PLANS[plan_key]
+        # 告知客户已提交，等待Owner审核
+        await query.edit_message_text(
+            f"✅ 已提交审核\n\n"
+            f"订单号: {payment_id}\n"
+            f"套餐: {p['emoji']} **{p['label']}** ${p['price']} USDT\n\n"
+            f"⏳ 等待Owner审核 (通常<1小时)\n"
+            f"收到激活码后: /activate <激活码>",
+            parse_mode='Markdown'
+        )
+
+        # 推送给Owner (老板的Telegram ID)
+        try:
+            owner_keyboard = [
+                [
+                    InlineKeyboardButton("✅ 通过", callback_data=f"pay_approve_{payment_id}"),
+                    InlineKeyboardButton("❌ 拒绝", callback_data=f"pay_reject_{payment_id}"),
+                ]
+            ]
+            owner_msg = (
+                f"🔔 **新订单待审核**\n\n"
+                f"客户: [{payment['first_name']}](tg://user?id={payment['user_id']}) (`{payment['user_id']}`)\n"
+                f"用户名: @{payment['username']}\n"
+                f"套餐: {p['emoji']} **{p['label']}** ${p['price']} USDT\n"
+                f"备注: {payment.get('caption', '(无)')}\n"
+                f"订单号: `{payment_id}`\n\n"
+                f"📷 [查看截图](tg://msg?photo={payment['photo_file_id']})\n\n"
+                f"⚡ 点击下方按钮决定:"
+            )
+            await context.bot.send_message(
+                chat_id=OWNER_TELEGRAM_ID,
+                text=owner_msg,
+                reply_markup=InlineKeyboardMarkup(owner_keyboard),
+                parse_mode='Markdown'
+            )
+        except Exception as e:
+            log(f"推送给Owner失败: {e}")
+        return
+
+    # Owner审核: pay_approve_{payment_id} / pay_reject_{payment_id}
+    db = load_users()
+    if not is_owner(db, query.from_user.id):
+        await query.edit_message_text("🚫 仅Owner可审核")
+        return
+
+    if data.startswith('pay_approve_'):
+        payment_id = data.replace('pay_approve_', '')
+        pending = load_pending_payments()
+        if payment_id not in pending:
+            await query.edit_message_text("❌ 订单不存在")
+            return
+
+        payment = pending[payment_id]
+        plan_key = payment['detected_plan']
+        p = SUBSCRIPTION_PLANS[plan_key]
+
+        # 生成激活码
+        db = load_users()
+        code = generate_activation_code(db, duration_days=p['days'], plan=plan_key)
+
+        payment['status'] = 'approved'
+        payment['code'] = code
+        payment['approved_at'] = time.time()
+        save_pending_payments(pending)
+
+        # 告知Owner审核结果
+        await query.edit_message_text(
+            f"✅ 已通过审核\n\n"
+            f"订单号: `{payment_id}`\n"
+            f"客户: `{payment['user_id']}`\n"
+            f"套餐: {p['emoji']} **{p['label']}** ${p['price']} USDT\n"
+            f"激活码: `{code}`\n\n"
+            f"📤 已自动发送给客户",
+            parse_mode='Markdown'
+        )
+
+        # 自动私信客户激活码
+        try:
+            await context.bot.send_message(
+                chat_id=int(payment['user_id']),
+                text=(
+                    f"🎉 订阅审核通过！\n\n"
+                    f"套餐: {p['emoji']} **{p['label']}** ${p['price']} USDT\n"
+                    f"激活码: `{code}`\n\n"
+                    f"📋 使用方法:\n"
+                    f"1. /activate {code}\n"
+                    f"2. /bindapi 绑定你的Binance API\n"
+                    f"3. /kbalance 查看账户\n\n"
+                    f"💡 有问题联系 @okbobox"
+                ),
+                parse_mode='Markdown'
+            )
+        except Exception as e:
+            log(f"发送激活码给客户失败: {e}")
+            # 退一步：把激活码交给Owner手动发送
+            await context.bot.send_message(
+                chat_id=OWNER_TELEGRAM_ID,
+                text=f"⚠️ 自动发送失败，请手动发给客户:\n\n激活码: {code}"
+            )
+
+    elif data.startswith('pay_reject_'):
+        payment_id = data.replace('pay_reject_', '')
+        pending = load_pending_payments()
+        if payment_id in pending:
+            pending[payment_id]['status'] = 'rejected'
+            pending[payment_id]['rejected_at'] = time.time()
+            save_pending_payments(pending)
+
+        await query.edit_message_text(f"❌ 已拒绝订单 `{payment_id}`")
+
+        # 通知客户
+        try:
+            payment = pending.get(payment_id, {})
+            if payment:
+                await context.bot.send_message(
+                    chat_id=int(payment['user_id']),
+                    text=(
+                        f"❌ 支付审核未通过\n\n"
+                        f"订单号: `{payment_id}`\n\n"
+                        f"可能原因:\n"
+                        f"  • 截图不清晰\n"
+                        f"  • 金额不匹配\n"
+                        f"  • 还未到账\n\n"
+                        f"请重新发送清晰截图，或联系 @okbobox"
+                    ),
+                    parse_mode='Markdown'
+                )
+        except Exception as e:
+            log(f"通知客户拒绝失败: {e}")
+
+
 async def cmd_help(update, context):
     """帮助菜单 - 修复版：纯文本不用Markdown"""
     msg = """🦞 BotKing & Bot20x 控制面板
@@ -1491,7 +1734,7 @@ def main():
 
     # 启动Telegram Bot
     from telegram import Update
-    from telegram.ext import Application, CommandHandler, MessageHandler, filters
+    from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 
     app_tg = Application.builder().token(TELEGRAM_TOKEN).build()
 
@@ -1531,6 +1774,15 @@ def main():
         filters.TEXT & ~filters.COMMAND,
         handle_natural_language
     ))
+
+    # 图片/截图处理 (半自动订阅验证)
+    app_tg.add_handler(MessageHandler(
+        filters.PHOTO,
+        handle_payment_proof
+    ))
+
+    # 按钮回调处理 (Owner确认/拒绝支付)
+    app_tg.add_handler(CallbackQueryHandler(handle_payment_callback, pattern=r'^pay_'))
 
     log("✅ Telegram Bot已启动")
     log("📱 在Telegram搜索你的机器人用户名,发送 /start 开始")
