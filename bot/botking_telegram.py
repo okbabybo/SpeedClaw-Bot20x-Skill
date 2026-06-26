@@ -304,17 +304,21 @@ ID：`{user.id}`
 /subscribe - 查看订阅方案
 /help    - 完整命令菜单
 
-══════ 💰 订阅后可用 ══════
-• 查看自己账户的实时余额/持仓
-• 控制自己的BotKing机器人
-• 查看自己的Bot20x合约状态
-• 多设备同步监控
+══════ 💎 订阅后可解锁 ══════
+• 实时余额/持仓/盈亏查询
+• 控制自己的 BotKing 现货机器人
+• 控制自己的 Bot20x 合约机器人
+• 多设备同步监控 + 报单推送
 
-══════ 💳 订阅价格 ══════
-年付：$399.9 USDT (BSC BEP20)
-终身：$999 USDT
+══════ 💰 三档订阅 ══════
+1️⃣ 月付   $59  USDT
+2️⃣ 年付   $399 USDT 🔥 最受欢迎
+3️⃣ 终身   $1299 USDT
 
-📧 联系Owner: @Okbabybo
+💳 支付网络: BSC (BEP20)
+📧 客服: @Okbabybo
+
+💡 也可直接输入 “订阅” / “月付” / “年付” / “终身” / “59” / “399” / “1299”
 """
     await update.message.reply_text(msg, parse_mode='Markdown')
 
@@ -502,47 +506,126 @@ async def cmd_restart_bot(update, context):
 
 
 # ===================== Bot20x 命令 =====================
+# ===================== 订阅配置 =====================
+PAYMENT_WALLET = "0x344FfCe2f7B8f580D4e054F7213cb231CD15c3cd"  # 老板的BSC BEP20收款地址
+PAYMENT_NETWORK = "BSC (BEP20)"
+
+SUBSCRIPTION_PLANS = {
+    "monthly":  {"label": "月付",   "days": 30,   "price": 59,   "emoji": "1️⃣",  "tag": "灵活试用"},
+    "yearly":   {"label": "年付",   "days": 365,  "price": 399,  "emoji": "2️⃣",  "tag": "🔥 最受欢迎", "highlight": True},
+    "lifetime": {"label": "终身",   "days": 36500,"price": 1299, "emoji": "3️⃣",  "tag": "♾️ 长期投资"},
+}
+
+
+def render_subscribe_message():
+    """统一渲染订阅方案消息"""
+    lines = [
+        "💳 SpeedClaw BotKing 订阅方案",
+        "",
+        "═══════════════════════════════",
+        "🟡 现货网格机器人 (BotKing)",
+        "   • 6个币种 BTC/ETH/BNB/SOL/AVAX/XRP",
+        "   • 7种市场模式自动识别",
+        "   • 9层风控保护",
+        "   • Phase2 复利滚仓",
+        "   • 综合评分 9.2/10",
+        "═══════════════════════════════",
+        "",
+        "💰 三档订阅价格:",
+        "",
+    ]
+
+    for plan_key, p in SUBSCRIPTION_PLANS.items():
+        lines.append(f"{p['emoji']} **{p['label']}会员** {p.get('tag','')}")
+        lines.append(f"   💵 ${p['price']} USDT")
+        if p['days'] >= 36500:
+            lines.append(f"   ♾️ 永久使用")
+        else:
+            lines.append(f"   ⏰ 有效期 {p['days']}天")
+        lines.append(f"   ✨ 源码 + 更新 + 技术支持")
+        if p.get('highlight'):
+            lines.append(f"   💡 平均每天仅 ${p['price']/365:.2f}，比月付省 ${(59*12-399):.0f}/年")
+        lines.append("")
+
+    lines.extend([
+        "═══════════════════════════════",
+        f"💳 支付方式 (USDT):",
+        f"   网络: {PAYMENT_NETWORK}",
+        f"   地址: `{PAYMENT_WALLET}`",
+        f"   ⚠️ 务必确认BSC网络，转错网络资产无法找回",
+        "",
+        "📋 参与流程 (4步):",
+        "   1️⃣  选择套餐 (月付/年付/终身)",
+        "   2️⃣  向地址转账对应金额 USDT",
+        f"   3️⃣  截图发送到此机器人，备注您的 Telegram ID",
+        f"   4️⃣  收到激活码后，发送: /activate <激活码>",
+        "",
+        "═══════════════════════════════",
+        "💡 智能提示:",
+        "   • 输入 \"月付\" / \"年付\" / \"终身\" → 自动显示对应套餐",
+        "   • 输入 \"59\" / \"399\" / \"1299\" → 自动识别金额",
+        "   • 输入 \"订阅\" 或 \"购买\" → 回到此菜单",
+        "",
+        "📧 客服: @Okbabybo",
+        "═══════════════════════════════",
+    ])
+    return "\n".join(lines)
+
+
 async def cmd_subscribe(update, context):
     """查看订阅方案"""
-    msg = """💳 SpeedClaw BotKing 订阅方案
+    await update.message.reply_text(render_subscribe_message(), parse_mode='Markdown')
+
+
+async def cmd_plan_detail(update, context, intent):
+    """显示某个具体套餐的详情"""
+    plan_key = intent.replace('plan_', '')
+    p = SUBSCRIPTION_PLANS.get(plan_key)
+    if not p:
+        await cmd_subscribe(update, context)
+        return
+
+    # 算性价比
+    yearly_equiv = p['price'] / 365 if p['days'] < 36500 else 0
+    save_vs_monthly = ""
+    if plan_key == 'yearly':
+        save_vs_monthly = f"   💡 比月付省 ${(59*12-399):.0f}/年 (省 {(1 - 399/(59*12))*100:.0f}%)"
+    elif plan_key == 'lifetime':
+        save_vs_monthly = f"   💡 相当于 {1299/(59*12):.1f}年月付价格，但永久使用"
+
+    msg = f"""💎 {p['label']}会员详情 {p.get('tag','')}
 
 ═══════════════════════
-🟡 BotKing 现货网格机器人
+💵 价格: ${p['price']} USDT
+⏰ 有效期: {p['days']}天 {('(永久)' if p['days']>=36500 else '')}
+"""
+    if yearly_equiv:
+        msg += f"📅 平均: ${yearly_equiv:.2f}/天\n"
+    msg += save_vs_monthly
+    msg += f"""
+═══════════════════════
+✨ 包含内容:
+   • BotKing 现货机器人 完整功能
    • 6个币种 (BTC/ETH/BNB/SOL/AVAX/XRP)
    • 7种市场模式自动识别
    • 9层风控保护
    • Phase2 复利滚仓
-   • 综合评分 9.2/10
+   • 源码 + 更新 + 技术支持
 ═══════════════════════
+💳 支付 (USDT - BSC BEP20):
+   地址: `{PAYMENT_WALLET}`
+   金额: ${p['price']} USDT
+   ⚠️ 转错网络资产无法找回
 
-💰 订阅价格:
+📋 下一步:
+   1. 向地址转账 ${p['price']} USDT (BSC BEP20)
+   2. 截图发送到此机器人
+   3. 备注您的 Telegram ID
+   4. 收到激活码后 /activate <激活码>
 
-1️⃣ 年付会员
-   💵 $399.9 USDT
-   ⏰ 有效期 365天
-   ✨ 包含: 源码 + 1年更新 + 技术支持
-
-2️⃣ 终身会员
-   💵 $999 USDT
-   ♾️ 永久使用
-   ✨ 包含: 源码 + 终身更新 + 优先支持
-
-═══════════════════════
-💳 支付方式:
-
-USDT (推荐) - BSC (BEP20) 网络
-地址: 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1
-金额: 对应套餐价格 + 备注您的Telegram ID
-
-📧 支付完成后:
-   1. 截图发送到此机器人
-   2. Owner会为您生成激活码
-   3. 输入激活码: /activate <激活码>
-
-═══════════════════════
-❓ 问题联系: @Okbabybo
+💡 输入 "订阅" 返回总菜单
 """
-    await update.message.reply_text(msg)
+    await update.message.reply_text(msg, parse_mode='Markdown')
 
 
 async def cmd_mysub(update, context):
@@ -1017,6 +1100,15 @@ INTENT_KEYWORDS = {
 
     # 帮助
     'help': ['帮助', 'help', '怎么用', '不会用', '指令', '命令', '菜单', '能做什么', '你会什么', '有什么功能', '怎么控制'],
+
+    # 订阅 (价格 / 套餐 / 购买)
+    'subscribe': [
+        '订阅', '订阅方案', '购买', '价格', '多少钱', '怎么付费', '付费', '开会员', '会员',
+        '付', '付款', '收钱', '交钱', '订阅一下', '购买订阅', '我要订阅', '想用',
+    ],
+    'plan_monthly':  ['月付', '月度', '按月', '59', '59u', '59usdt', '一月', '包月'],
+    'plan_yearly':   ['年付', '年度', '按年', '399', '399u', '399usdt', '一年', '包年', '年会员', '年订阅'],
+    'plan_lifetime': ['终身', '永久', '1299', '1299u', '1299usdt', '买断', '一次买断', '终身会员', '终身订阅', '不限期'],
 }
 
 
@@ -1092,6 +1184,10 @@ async def handle_natural_language(update, context):
         'restart_bot20x': '🟢 重启合约',
         # 帮助
         'help': '❓ 帮助',
+        'subscribe': '💳 订阅方案',
+        'plan_monthly': '1️⃣ 月付 $59',
+        'plan_yearly': '2️⃣ 年付 $399',
+        'plan_lifetime': '3️⃣ 终身 $1299',
     }
     await update.message.reply_text(
         f"🎤 识别意图：{intent_emoji.get(intent, intent)}"
@@ -1119,6 +1215,8 @@ async def handle_natural_language(update, context):
         'restart_bot20x': cmd_restart_bot20x,
         # 帮助
         'help': cmd_help,
+        # 订阅
+        'subscribe': cmd_subscribe,
     }
 
     if intent in ('log', 'klog', 'xlog'):
@@ -1135,6 +1233,8 @@ async def handle_natural_language(update, context):
             await cmd_klog_bot20x(update, context)
     elif intent in handlers:
         await handlers[intent](update, context)
+    elif intent in ('plan_monthly', 'plan_yearly', 'plan_lifetime'):
+        await cmd_plan_detail(update, context, intent)
 
 
 async def cmd_help(update, context):
@@ -1181,13 +1281,23 @@ API管理：
 ══════ 🦞 自然语言 ══════
 "现货余额" "Bot20x状态" "持仓怎么样"
 "启动合约" "重启" "帮助"
+"月付" "年付" "终身" "59" "399" "1299"
+"订阅" "购买" "价格" "多少钱"
+
+══════ 💳 三档订阅 ══════
+1️⃣ 月付   $59   USDT (30天)
+2️⃣ 年付   $399  USDT (365天) 🔥最受欢迎
+3️⃣ 终身   $1299 USDT (永久)
+
+输入 “月付” “年付” “终身” → 查看详情
+或发 “订阅” → 总菜单
 
 ══════ 风险提示 ══════
 ⚠️ 启停操作谨慎使用
 ⚠️ 所有操作记录到日志
 
 ═══════════════════
-v1.4.3 · @Okbabybo
+v1.4.4 · @Okbabybo
 """
     await update.message.reply_text(msg)
 

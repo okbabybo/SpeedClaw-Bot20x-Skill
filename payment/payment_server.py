@@ -11,8 +11,13 @@ app.config['JSON_AS_ASCII'] = False
 
 CONTACT = "@Okbabybo"
 GITHUB = "https://github.com/okbabybo/SpeedClaw-Bot20x-Skill"
-PRICE = "399.9 USDT / 年"
+PRICE = "399 USDT / 年"
 WALLET = "0x344FfCe2f7B8f580D4e054F7213cb231CD15c3cd"
+PLANS = {
+    "monthly":  {"days": 30,   "price": 59,   "label": "月付"},
+    "yearly":   {"days": 365,  "price": 399,  "label": "年付"},
+    "lifetime": {"days": 36500,"price": 1299, "label": "终身"},
+}
 
 PAGE = """
 <!DOCTYPE html>
@@ -85,7 +90,7 @@ PAGE = """
   </div>
 
   <div class="price">
-    <div class="amount">$399.9 USDT / 年</div>
+    <div class="amount">$399 USDT / 年</div>
     <div class="desc">订阅后获取授权码 + 完整策略包</div>
   </div>
 
@@ -99,7 +104,7 @@ PAGE = """
   <div class="step-box">
     <h4>📋 订阅流程</h4>
     <div class="step"><span class="step-num">1</span> 复制上方收款地址</div>
-    <div class="step"><span class="step-num">2</span> 向该地址转账 <b style="color:#f7931a">399.9 USDT</b>（BSC网络）</div>
+    <div class="step"><span class="step-num">2</span> 向该地址转账 <b style="color:#f7931a">对应套餐金额 USDT</b>（BSC BEP20网络）</div>
     <div class="step"><span class="step-num">3</span> 联系 Telegram 发送转账截图</div>
     <div class="step"><span class="step-num">4</span> 收到授权码 + GitHub 下载机器人</div>
   </div>
