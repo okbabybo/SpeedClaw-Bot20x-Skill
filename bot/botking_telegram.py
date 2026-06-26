@@ -310,7 +310,7 @@ ID：`{user.id}`
 • 控制自己的 Bot20x 合约机器人
 • 多设备同步监控 + 报单推送
 
-══════ 💰 三档订阅 ══════
+══════ 💰 三档订阅 (现货+合约同价) ══════
 1️⃣ 月付   $59  USDT
 2️⃣ 年付   $399 USDT 🔥 最受欢迎
 3️⃣ 终身   $1299 USDT
@@ -319,6 +319,8 @@ ID：`{user.id}`
 📧 客服: @Okbabybo
 
 💡 也可直接输入 “订阅” / “月付” / “年付” / “终身” / “59” / “399” / “1299”
+    · “现货订阅” → 只看 BotKing
+    · “合约订阅” → 只看 Bot20x
 """
     await update.message.reply_text(msg, parse_mode='Markdown')
 
@@ -516,24 +518,70 @@ SUBSCRIPTION_PLANS = {
     "lifetime": {"label": "终身",   "days": 36500,"price": 1299, "emoji": "3️⃣",  "tag": "♾️ 长期投资"},
 }
 
+# 产品清单 (双产品统一价格表)
+PRODUCTS = {
+    "king": {
+        "name": "BotKing 现货网格机器人",
+        "emoji": "🟡",
+        "short": "BotKing",
+        "desc": [
+            "   • 6个币种 BTC/ETH/BNB/SOL/AVAX/XRP",
+            "   • 7种市场模式自动识别",
+            "   • 9层风控保护",
+            "   • Phase2 复利滚仓",
+            "   • 综合评分 9.2/10",
+        ],
+    },
+    "20x": {
+        "name": "Bot20x 合约机器人",
+        "emoji": "🟢",
+        "short": "Bot20x",
+        "desc": [
+            "   • BTC + ETH 永续合约 (20倍杠杆)",
+            "   • MACD + 布林带双指标信号",
+            "   • 趋势跟随 + 精准止盈止损",
+            "   • v5.6 冷静期熔断保护",
+            "   • 5年回测 + 实盘验证",
+        ],
+    },
+}
 
-def render_subscribe_message():
-    """统一渲染订阅方案消息"""
+
+def render_subscribe_message(product="all"):
+    """统一渲染订阅方案消息
+
+    Args:
+        product: 'king' / '20x' / 'all' (默认全部)
+    """
+    if product == "all":
+        header = "💳 SpeedClaw 产品订阅 (现货+合约)"
+    elif product == "king":
+        header = "💳 SpeedClaw BotKing 现货订阅"
+    elif product == "20x":
+        header = "💳 SpeedClaw Bot20x 合约订阅"
+    else:
+        header = "💳 SpeedClaw 产品订阅"
+
     lines = [
-        "💳 SpeedClaw BotKing 订阅方案",
+        header,
         "",
         "═══════════════════════════════",
-        "🟡 现货网格机器人 (BotKing)",
-        "   • 6个币种 BTC/ETH/BNB/SOL/AVAX/XRP",
-        "   • 7种市场模式自动识别",
-        "   • 9层风控保护",
-        "   • Phase2 复利滚仓",
-        "   • 综合评分 9.2/10",
-        "═══════════════════════════════",
-        "",
-        "💰 三档订阅价格:",
-        "",
     ]
+
+    if product == "all":
+        for pkey, prod in PRODUCTS.items():
+            lines.append(f"{prod['emoji']} {prod['name']}")
+            for d in prod['desc']:
+                lines.append(d)
+            lines.append("")
+        lines.append("═══════════════════════════════")
+    else:
+        prod = PRODUCTS[product]
+        lines.append(f"{prod['emoji']} {prod['name']}")
+        for d in prod['desc']:
+            lines.append(d)
+        lines.append("")
+        lines.append("═══════════════════════════════")
 
     for plan_key, p in SUBSCRIPTION_PLANS.items():
         lines.append(f"{p['emoji']} **{p['label']}会员** {p.get('tag','')}")
@@ -565,6 +613,7 @@ def render_subscribe_message():
         "   • 输入 \"月付\" / \"年付\" / \"终身\" → 自动显示对应套餐",
         "   • 输入 \"59\" / \"399\" / \"1299\" → 自动识别金额",
         "   • 输入 \"订阅\" 或 \"购买\" → 回到此菜单",
+        "   • 输入 \"现货订阅\" / \"合约订阅\" → 只看 BotKing / Bot20x",
         "",
         "📧 客服: @Okbabybo",
         "═══════════════════════════════",
@@ -573,8 +622,15 @@ def render_subscribe_message():
 
 
 async def cmd_subscribe(update, context):
-    """查看订阅方案"""
-    await update.message.reply_text(render_subscribe_message(), parse_mode='Markdown')
+    """查看订阅方案 (默认全部)"""
+    product = "all"
+    if context.args:
+        arg = context.args[0].lower()
+        if arg in ("king", "botking", "现货"):
+            product = "king"
+        elif arg in ("20x", "bot20x", "合约"):
+            product = "20x"
+    await update.message.reply_text(render_subscribe_message(product), parse_mode='Markdown')
 
 
 async def cmd_plan_detail(update, context, intent):
@@ -1106,6 +1162,8 @@ INTENT_KEYWORDS = {
         '订阅', '订阅方案', '购买', '价格', '多少钱', '怎么付费', '付费', '开会员', '会员',
         '付', '付款', '收钱', '交钱', '订阅一下', '购买订阅', '我要订阅', '想用',
     ],
+    'subscribe_king': ['现货订阅', 'king订阅', 'botking订阅', '现货会员', '现货怎么订阅'],
+    'subscribe_20x':  ['合约订阅', '20x订阅', 'bot20x订阅', '合约会员', '合约怎么订阅'],
     'plan_monthly':  ['月付', '月度', '按月', '59', '59u', '59usdt', '一月', '包月'],
     'plan_yearly':   ['年付', '年度', '按年', '399', '399u', '399usdt', '一年', '包年', '年会员', '年订阅'],
     'plan_lifetime': ['终身', '永久', '1299', '1299u', '1299usdt', '买断', '一次买断', '终身会员', '终身订阅', '不限期'],
@@ -1184,7 +1242,9 @@ async def handle_natural_language(update, context):
         'restart_bot20x': '🟢 重启合约',
         # 帮助
         'help': '❓ 帮助',
-        'subscribe': '💳 订阅方案',
+        'subscribe': '💳 订阅方案 (全部)',
+        'subscribe_king': '🟡 BotKing 现货订阅',
+        'subscribe_20x': '🟢 Bot20x 合约订阅',
         'plan_monthly': '1️⃣ 月付 $59',
         'plan_yearly': '2️⃣ 年付 $399',
         'plan_lifetime': '3️⃣ 终身 $1299',
@@ -1235,6 +1295,10 @@ async def handle_natural_language(update, context):
         await handlers[intent](update, context)
     elif intent in ('plan_monthly', 'plan_yearly', 'plan_lifetime'):
         await cmd_plan_detail(update, context, intent)
+    elif intent in ('subscribe_king', 'subscribe_20x'):
+        product = 'king' if intent == 'subscribe_king' else '20x'
+        context.args = [product]
+        await cmd_subscribe(update, context)
 
 
 async def cmd_help(update, context):
