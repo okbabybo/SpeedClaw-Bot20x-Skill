@@ -882,6 +882,144 @@ async def cmd_myapi(update, context):
         )
 
 
+async def cmd_unbindapi(update, context):
+    """解绑Binance API"""
+    user = update.effective_user
+    db = load_users()
+    level = get_user_level(db, user.id)
+
+    if level not in ('owner', 'admin'):
+        await update.message.reply_text("🚫 此功能仅订阅会员可用")
+        return
+
+    admin = db['admins'].get(str(user.id), {})
+    if not admin.get('api_key'):
+        await update.message.reply_text(
+            "❌ 未绑定API，无需解绑\n\n"
+            "如需绑定: /bindapi"
+        )
+        return
+
+    # 确认按钮
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ 确认解绑", callback_data=f"unbind_confirm_{user.id}"),
+            InlineKeyboardButton("❌ 取消", callback_data="unbind_cancel"),
+        ]
+    ]
+    await update.message.reply_text(
+        f"⚠️ 确认解绑API?\n\n"
+        f"Key: {admin['api_key'][:8]}...{admin['api_key'][-4:]}\n\n"
+        f"解绑后机器人会停止交易，需重新 /bindapi 才能使用",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+async def cmd_myorders(update, context):
+    """查看我的订单状态（半自动付款流程）"""
+    user = update.effective_user
+    PENDING_FILE = Path('/root/.openclaw/workspace/.pending_payments.json')
+
+    if not PENDING_FILE.exists():
+        await update.message.reply_text(
+            "📦 你还没有订单记录\n\n"
+            "💡 首次订阅: /subscribe\n"
+            "💡 发截图: 直接发支付截图到机器人"
+        )
+        return
+
+    try:
+        all_payments = json.loads(PENDING_FILE.read_text())
+    except:
+        all_payments = {}
+
+    my_orders = [p for p in all_payments.values() if p.get('user_id') == str(user.id)]
+
+    if not my_orders:
+        await update.message.reply_text(
+            "📦 你还没有订单记录\n\n"
+            "💡 首次订阅: /subscribe\n"
+            "💡 发截图: 直接发支付截图到机器人"
+        )
+        return
+
+    lines = ["📦 **我的订单**", ""]
+    for idx, p in enumerate(my_orders[-5:], 1):  # 最近5单
+        plan = p.get('detected_plan', '?')
+        product = p.get('detected_product', '?')
+        status_emoji = {'pending': '⏳', 'approved': '✅', 'rejected': '❌'}.get(p.get('status'), '?')
+        status_text = {'pending': '待审核', 'approved': '已通过', 'rejected': '已拒绝'}.get(p.get('status'), p.get('status'))
+        product_emoji = {'king': '🟡现货', '20x': '🟢合约', 'both': '🟡🟢通票'}.get(product, product)
+        plan_label = {'monthly': '月付', 'yearly': '年付', 'lifetime': '终身'}.get(plan, plan)
+        created = datetime.fromtimestamp(p.get('created_at', 0)).strftime('%m-%d %H:%M')
+        lines.append(
+            f"{status_emoji} **{idx}. {product_emoji} {plan_label}** ({status_text})\n"
+            f"   订单号: `{p['payment_id'][:20]}...`\n"
+            f"   时间: {created}"
+        )
+        if p.get('code'):
+            lines.append(f"   激活码: `{p['code']}`")
+        lines.append("")
+
+    lines.append("💡 如订单超1小时未处理: 联系 @okbobox")
+    await update.message.reply_text("\n".join(lines), parse_mode='Markdown')
+
+
+async def cmd_renew(update, context):
+    """一键续费 (生成年付激活码)"""
+    user = update.effective_user
+    db = load_users()
+    level = get_user_level(db, user.id)
+
+    if level == 'owner':
+        await update.message.reply_text("👑 你是Owner，订阅永久有效")
+        return
+
+    if level == 'unknown' or level == 'user':
+        await update.message.reply_text(
+            "❌ 你还没有订阅\n\n"
+            "💡 首次订阅: /subscribe"
+        )
+        return
+
+    # 看上下文参数 (默认当前产品+年付)
+    admin = db['admins'].get(str(user.id), {})
+    current_product = admin.get('product', 'both')
+    product_emoji = {'king': '🟡现货', '20x': '🟢合约', 'both': '🟡🟢通票'}[current_product]
+
+    plan = 'yearly'
+    plan_label = '年付'
+    if context.args:
+        arg = context.args[0].lower()
+        if '月' in arg or 'monthly' in arg or '30' in arg or '59' in arg or '99' in arg:
+            plan = 'monthly'
+            plan_label = '月付'
+        elif '终' in arg or 'lifetime' in arg or '永久' in arg or '1299' in arg or '1999' in arg:
+            plan = 'lifetime'
+            plan_label = '终身'
+
+    p = SUBSCRIPTION_PLANS[plan]
+    price = PRODUCT_PRICES.get(current_product, PRODUCT_PRICES['king'])[plan]
+    days = p['days']
+
+    # 显示续费信息
+    msg = f"""💎 **续费 {product_emoji} {plan_label}**
+
+价格: ${price} USDT
+有效期: {days}天{' (永久)' if days >= 36500 else ''}
+收款地址: `{PAYMENT_WALLET}`
+网络: {PAYMENT_NETWORK}
+
+💡 两种续费方式:
+1. 转账${price} USDT到地址，memo写 `Telegram: {user.id} {current_product}`
+   ≤15秒全自动激活
+
+2. 转账后发支付截图 (备注: '续费+{plan_label}'), Owner手动发码
+"""
+    await update.message.reply_text(msg, parse_mode='Markdown')
+
+
 # ===================== Owner 命令 =====================
 async def cmd_gencode(update, context):
     """Owner生成激活码 - 支持套餐参数 + 自然语言 + 确认按钮"""
@@ -1290,6 +1428,11 @@ INTENT_KEYWORDS = {
 
     # Owner生成激活码 (仅Owner可用，但识别要给提示)
     'gencode': ['生成激活码', '生成月付激活码', '生成年付激活码', '生成终身激活码', '生成现货激活码', '生成合约激活码', '生成通票激活码', '生成现货年付激活码', '生成合约年付激活码', '生成现货月付激活码', '生成合约月付激活码', '生成现货终身激活码', '生成合约终身激活码', '出个码', '给我个码', '生成一个码', '要个激活码', '发个激活码', 'gencode'],
+
+    # 新增命令
+    'unbindapi': ['unbindapi', '解绑api', '解绑api', '解除绑定', '解绑', '解除api', '取消绑定', 'unbind', '不绑了'],
+    'myorders': ['我的订单', '我的付款', '订单状态', '订单记录', 'myorders', '我的订单', '查看订单', '我的订阅订单'],
+    'renew': ['续费', '续订', 'renew', '怎么续费', '怎么续订', '续期', '延卡', '延长', '充值', '我要续费', '再续一年', '再续', '续上'],
 }
 
 
@@ -1453,6 +1596,19 @@ async def handle_natural_language(update, context):
 
         context.args = [a for a in [plan_arg, product_arg] if a] or ['yearly']
         await cmd_gencode(update, context)
+    elif intent == 'unbindapi':
+        await cmd_unbindapi(update, context)
+    elif intent == 'myorders':
+        await cmd_myorders(update, context)
+    elif intent == 'renew':
+        # 提取renew参数
+        renew_arg = None
+        if '月' in text or '30' in text or '59' in text or '99' in text:
+            renew_arg = '月付'
+        elif '终' in text or '永久' in text or '1299' in text or '1999' in text:
+            renew_arg = '终身'
+        context.args = [renew_arg] if renew_arg else []
+        await cmd_renew(update, context)
 
 
 # ===================== 半自动订阅支付验证 =====================
@@ -1554,6 +1710,26 @@ async def handle_payment_callback(update, context):
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     query = update.callback_query
     await query.answer()
+
+    data = query.data
+
+    # unbindapi 确认
+    if data.startswith('unbind_confirm_'):
+        user_id = data.replace('unbind_confirm_', '')
+        db = load_users()
+        admin = db.get('admins', {}).get(user_id)
+        if admin:
+            admin['api_key'] = None
+            admin['api_secret'] = None
+            save_users(db)
+            await query.edit_message_text("✅ API已解绑\n\n重新绑定: /bindapi")
+        else:
+            await query.edit_message_text("❌ 未找到账户")
+        return
+    if data == 'unbind_cancel':
+        await query.edit_message_text("✅ 已取消")
+        return
+
 
     data = query.data
     # 客户选套餐: pay_plan_{payment_id}_{plan} → 第1步选档位
@@ -1784,9 +1960,17 @@ Bot20x 合约：
 API管理：
 /bindapi       - 绑定你的Binance API
 /myapi         - 查看API绑定状态
+/unbindapi     - 解绑API (重新换账号)
+
+订单与订阅：
+/subscribe     - 查看6档订阅方案 (现货/合约/通票)
+/activate <码> - 激活激活码
+/mysub         - 我的订阅状态 (含产品+到期)
+/myorders      - 查看我的订单状态 (半自动付款后查)
+/renew         - 一键续费 (自动生成套餐详情+地址)
 
 ══════ 👑 Owner专用 ══════
-/gencode [天数] - 生成激活码
+/gencode [产品] [档位] - 生成激活码 (现货/合约/通票 × 月付/年付/终身)
 /listusers     - 查看所有用户
 /grant <id>    - 授权用户
 
@@ -1794,15 +1978,16 @@ API管理：
 "现货余额" "Bot20x状态" "持仓怎么样"
 "启动合约" "重启" "帮助"
 "月付" "年付" "终身" "59" "399" "1299"
-"订阅" "购买" "价格" "多少钱"
+"订阅" "购买" "价格" "续费" "我的订单"
+"生成年付激活码" "出个码" "解绑"
 
-══════ 💳 三档订阅 ══════
-1️⃣ 月付   $59   USDT (30天)
-2️⃣ 年付   $399  USDT (365天) 🔥最受欢迎
-3️⃣ 终身   $1299 USDT (永久)
+══════ 💳 六档订阅 ══════
+| 档位 | 现货 | 合约 | 通票 |
+| 月付 | $59 | $59 | $99 |
+| 年付 | $399 | $399 | $599 |
+| 终身 | $1299 | $1299 | $1999 |
 
-输入 “月付” “年付” “终身” → 查看详情
-或发 “订阅” → 总菜单
+输入 “订阅” → 总菜单 / “现货订阅” “合约订阅” “通票订阅”
 
 ══════ 风险提示 ══════
 ⚠️ 启停操作谨慎使用
@@ -1894,6 +2079,12 @@ def main():
     app_tg.add_handler(CommandHandler("activate", cmd_activate))
     app_tg.add_handler(CommandHandler("bindapi", cmd_bindapi))
     app_tg.add_handler(CommandHandler("myapi", cmd_myapi))
+    app_tg.add_handler(CommandHandler("unbindapi", cmd_unbindapi))
+    app_tg.add_handler(CommandHandler("myorders", cmd_myorders))
+    app_tg.add_handler(CommandHandler("renew", cmd_renew))
+
+    # unbindapi 确认按钮
+    app_tg.add_handler(CallbackQueryHandler(handle_payment_callback, pattern=r'^unbind_'))
     app_tg.add_handler(CommandHandler("gencode", cmd_gencode))
     app_tg.add_handler(CommandHandler("listusers", cmd_listusers))
     app_tg.add_handler(CommandHandler("grant", cmd_grant))
