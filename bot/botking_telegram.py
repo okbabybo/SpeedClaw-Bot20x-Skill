@@ -1446,6 +1446,7 @@ async def handle_payment_proof(update, context):
         'photo_file_id': photo.file_id,
         'caption': caption,
         'detected_plan': detected_plan,
+        'detected_product': None,  # 现货/合约/通票
         'detected_amount': detected_amount,
         'status': 'pending',  # pending / approved / rejected
         'created_at': time.time(),
@@ -1453,22 +1454,23 @@ async def handle_payment_proof(update, context):
     }
     save_pending_payments(pending)
 
-    # 2. 给客户回复 (要求确认套餐)
+    # 2. 给客户回复 (要求确认套餐 - 两步: 先选plan，再选product)
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+    # 第一步: 选 plan
     keyboard = []
     for plan_key, p in SUBSCRIPTION_PLANS.items():
         keyboard.append([
             InlineKeyboardButton(
                 f"{p['emoji']} {p['label']} ${p['price']}",
-                callback_data=f"pay_select_{payment_id}_{plan_key}"
+                callback_data=f"pay_plan_{payment_id}_{plan_key}"
             )
         ])
 
     reply = (
         f"✅ 已收到支付截图\n\n"
         f"订单号: {payment_id}\n"
-        f"📋 请确认您选择的套餐:"
+        f"📋 **第1步: 请选择订阅档位**:"
     )
     if detected_plan:
         p = SUBSCRIPTION_PLANS[detected_plan]
@@ -1476,7 +1478,7 @@ async def handle_payment_proof(update, context):
             f"✅ 已收到支付截图\n\n"
             f"订单号: {payment_id}\n"
             f"🎯 从备注识别: {p['emoji']} **{p['label']}** ${p['price']} USDT\n\n"
-            f"请确认或选择其他套餐:"
+            f"📋 **第1步: 请确认订阅档位**:"
         )
 
     await update.message.reply_text(
@@ -1493,8 +1495,8 @@ async def handle_payment_callback(update, context):
     await query.answer()
 
     data = query.data
-    # 客户选套餐: pay_select_{payment_id}_{plan}
-    if data.startswith('pay_select_'):
+    # 客户选套餐: pay_plan_{payment_id}_{plan} → 第1步选档位
+    if data.startswith('pay_plan_'):
         _, _, payment_id, plan_key = data.split('_', 3)
         pending = load_pending_payments()
         if payment_id not in pending:
@@ -1506,18 +1508,61 @@ async def handle_payment_callback(update, context):
         payment['user_choice_at'] = time.time()
         save_pending_payments(pending)
 
+        # 第2步: 选产品 (现货/合约/通票)
+        PRODUCT_LABELS = {
+            'king': ('🟡 BotKing现货', '$59 / $399 / $1299'),
+            '20x':  ('🟢 Bot20x合约', '$59 / $399 / $1299'),
+            'both': ('🟡🟢 现货+合约通票', '$99 / $599 / $1999'),
+        }
+        keyboard2 = []
+        for prod_key, (label, prices) in PRODUCT_LABELS.items():
+            keyboard2.append([
+                InlineKeyboardButton(
+                    f"{label} ({prices})",
+                    callback_data=f"pay_product_{payment_id}_{prod_key}"
+                )
+            ])
+
         p = SUBSCRIPTION_PLANS[plan_key]
-        # 告知客户已提交，等待Owner审核
+        await query.edit_message_text(
+            f"✅ 第1步已选: {p['emoji']} **{p['label']}** ${p['price']} USDT\n\n"
+            f"📋 **第2步: 请选择产品**\n\n"
+            f"🟡 BotKing现货 = 6币种网格交易\n"
+            f"🟢 Bot20x合约 = BTC/ETH永续合约20倍杠杆\n"
+            f"🟡🟢 通票 = 现货+合约 (适合两个都要的人)",
+            reply_markup=InlineKeyboardMarkup(keyboard2),
+            parse_mode='Markdown'
+        )
+        return
+
+    # 第2步选产品: pay_product_{payment_id}_{product} → 提交Owner审核
+    if data.startswith('pay_product_'):
+        _, _, payment_id, product_key = data.split('_', 3)
+        pending = load_pending_payments()
+        if payment_id not in pending:
+            await query.edit_message_text("❌ 订单不存在或已过期")
+            return
+
+        payment = pending[payment_id]
+        payment['detected_product'] = product_key
+        payment['submitted_at'] = time.time()
+        save_pending_payments(pending)
+
+        plan_key = payment['detected_plan']
+        p = SUBSCRIPTION_PLANS[plan_key]
+        product_label = {'king': '🟡 BotKing现货', '20x': '🟢 Bot20x合约', 'both': '🟡🟢 现货+合约通票'}[product_key]
+
         await query.edit_message_text(
             f"✅ 已提交审核\n\n"
             f"订单号: {payment_id}\n"
-            f"套餐: {p['emoji']} **{p['label']}** ${p['price']} USDT\n\n"
+            f"档位: {p['emoji']} **{p['label']}** ${p['price']} USDT\n"
+            f"产品: {product_label}\n\n"
             f"⏳ 等待Owner审核 (通常<1小时)\n"
             f"收到激活码后: /activate <激活码>",
             parse_mode='Markdown'
         )
 
-        # 推送给Owner (老板的Telegram ID)
+        # 推送给Owner
         try:
             owner_keyboard = [
                 [
@@ -1529,7 +1574,8 @@ async def handle_payment_callback(update, context):
                 f"🔔 **新订单待审核**\n\n"
                 f"客户: [{payment['first_name']}](tg://user?id={payment['user_id']}) (`{payment['user_id']}`)\n"
                 f"用户名: @{payment['username']}\n"
-                f"套餐: {p['emoji']} **{p['label']}** ${p['price']} USDT\n"
+                f"档位: {p['emoji']} **{p['label']}** ${p['price']} USDT\n"
+                f"产品: {product_label}\n"
                 f"备注: {payment.get('caption', '(无)')}\n"
                 f"订单号: `{payment_id}`\n\n"
                 f"📷 [查看截图](tg://msg?photo={payment['photo_file_id']})\n\n"
@@ -1564,19 +1610,23 @@ async def handle_payment_callback(update, context):
 
         # 生成激活码
         db = load_users()
-        code = generate_activation_code(db, duration_days=p['days'], plan=plan_key)
+        product = payment.get('detected_product', 'both')
+        code = generate_activation_code(db, duration_days=p['days'], plan=plan_key, product=product)
 
         payment['status'] = 'approved'
         payment['code'] = code
         payment['approved_at'] = time.time()
         save_pending_payments(pending)
 
+        product_label = {'king': '🟡 BotKing现货', '20x': '🟢 Bot20x合约', 'both': '🟡🟢 现货+合约通票'}[product]
+
         # 告知Owner审核结果
         await query.edit_message_text(
             f"✅ 已通过审核\n\n"
             f"订单号: `{payment_id}`\n"
             f"客户: `{payment['user_id']}`\n"
-            f"套餐: {p['emoji']} **{p['label']}** ${p['price']} USDT\n"
+            f"档位: {p['emoji']} **{p['label']}** ${p['price']} USDT\n"
+            f"产品: {product_label}\n"
             f"激活码: `{code}`\n\n"
             f"📤 已自动发送给客户",
             parse_mode='Markdown'
@@ -1588,7 +1638,8 @@ async def handle_payment_callback(update, context):
                 chat_id=int(payment['user_id']),
                 text=(
                     f"🎉 订阅审核通过！\n\n"
-                    f"套餐: {p['emoji']} **{p['label']}** ${p['price']} USDT\n"
+                    f"档位: {p['emoji']} **{p['label']}** ${p['price']} USDT\n"
+                    f"产品: {product_label}\n"
                     f"激活码: `{code}`\n\n"
                     f"📋 使用方法:\n"
                     f"1. /activate {code}\n"
