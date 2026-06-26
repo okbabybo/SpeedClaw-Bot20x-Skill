@@ -310,17 +310,27 @@ ID：`{user.id}`
 • 控制自己的 Bot20x 合约机器人
 • 多设备同步监控 + 报单推送
 
-══════ 💰 三档订阅 (现货+合约同价) ══════
-1️⃣ 月付   $59  USDT
-2️⃣ 年付   $399 USDT 🔥 最受欢迎
-3️⃣ 终身   $1299 USDT
+══════ 💰 六档订阅 (现货+合约+通票) ══════
+🟡 **BotKing现货** | 🟢 **Bot20x合约** | 🟡🟢 **现货+合约通票**
+
+| 档位 | 现货 | 合约 | 通票 |
+|------|------|------|------|
+| 月付 | $59 | $59 | $99 |
+| 年付 | $399 | $399 | $599 |
+| 终身 | $1299 | $1299 | $1999 |
 
 💳 支付网络: BSC (BEP20)
+💳 USDT 地址: `0x344FfCe2f7B8f580D4e054F7213cb231CD15c3cd`
 📧 客服: @okbobox
 
-💡 也可直接输入 “订阅” / “月付” / “年付” / “终身” / “59” / “399” / “1299”
-    · “现货订阅” → 只看 BotKing
-    · “合约订阅” → 只看 Bot20x
+💡 也可直接输入:
+    · “订阅” / “现货订阅” / “合约订阅” / “通票订阅”
+    · “月付” / “年付” / “终身” / “通票”
+    · 数字: “59” / “99” / “399” / “599” / “1299” / “1999”
+
+🤖 **全自动模式 (推荐)**:
+    转账备注您的 Telegram ID + 产品 (如 “Telegram: 1234567890 合约”),
+    ≤15秒自动激活并发送激活码
 """
     await update.message.reply_text(msg, parse_mode='Markdown')
 
@@ -747,16 +757,20 @@ ID：`{user.id}`
         remain = expire - time.time()
         days = int(remain / 86400)
         plan = admin.get('plan', 'unknown')
+        product = admin.get('product', 'unknown')
         api_bound = bool(admin.get('api_key'))
+        product_emoji = {'king': '🟡现货', '20x': '🟢合约', 'both': '🟡🟢通票'}.get(product, product)
+        plan_label = {'monthly': '月付', 'yearly': '年付', 'lifetime': '终身'}.get(plan, plan)
         msg += f"""
-套餐：{plan}
+产品：{product_emoji}
+套餐：{plan_label} ({plan})
 剩余天数：{days} 天
-到期时间：{datetime.fromtimestamp(expire).strftime('%Y-%m-%d')}
+到期时间：{datetime.fromtimestamp(expire).strftime('%Y-%m-%d %H:%M')}
 API绑定：{'✅ 已绑定' if api_bound else '❌ 未绑定'}
 
 💡 下一步：
 {'API未绑定 - 输入 /bindapi' if not api_bound else '订阅生效中 - 享受全部功能'}
-"""
+{'套餐已过期 - 输入 /subscribe 续费' if remain < 0 else ''}"""
 
     elif level == 'user' or level == 'unknown':
         msg += """

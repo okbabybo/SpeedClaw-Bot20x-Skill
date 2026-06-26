@@ -136,17 +136,33 @@ def activate_code(db, telegram_id, code):
     code_info['used_at'] = time.time()
     duration = code_info['duration_days']
     plan = code_info['plan']
+    new_product = code_info.get('product', 'both')
+
+    # 计算expire_at: 考虑是否过期续费
+    now = time.time()
+    existing_admin = db['admins'].get(telegram_id)
+    if existing_admin and existing_admin.get('expire_at', 0) > now:
+        # 未过期: 剩余天数 + 新码天数 = 总有效期 (升级产品)
+        base_expire = existing_admin['expire_at']
+        old_product = existing_admin.get('product', 'both')
+        # 产品优先级: both > 20x > king
+        prod_priority = {'king': 1, '20x': 2, 'both': 3}
+        final_product = old_product if prod_priority.get(old_product, 0) >= prod_priority.get(new_product, 0) else new_product
+    else:
+        # 新订或过期续费: 从今天算
+        base_expire = now
+        final_product = new_product
 
     # 升级为admin
     db['admins'][telegram_id] = {
         'telegram_id': telegram_id,
-        'activated_at': time.time(),
-        'expire_at': time.time() + duration * 86400,
+        'activated_at': existing_admin.get('activated_at', now) if existing_admin else now,
+        'expire_at': base_expire + duration * 86400,
         'plan': plan,
-        'product': code_info.get('product', 'both'),  # 默认both兼容旧码
+        'product': final_product,
         'code_used': code,
-        'api_key': None,    # 用户自己的API密钥
-        'api_secret': None,
+        'api_key': existing_admin.get('api_key') if existing_admin else None,
+        'api_secret': existing_admin.get('api_secret') if existing_admin else None,
         'bound_symbols': [],  # 用户可以交易的币种
     }
 
