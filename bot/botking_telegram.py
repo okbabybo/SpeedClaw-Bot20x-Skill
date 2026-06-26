@@ -834,29 +834,79 @@ async def cmd_myapi(update, context):
 
 # ===================== Owner 命令 =====================
 async def cmd_gencode(update, context):
-    """Owner生成激活码"""
+    """Owner生成激活码 - 支持套餐参数 + 自然语言 + 确认按钮"""
     user = update.effective_user
     db = load_users()
     if not is_owner(db, user.id):
         await update.message.reply_text("🚫 仅Owner可生成激活码")
         return
 
-    duration = 365  # 默认年付
-    if context.args:
-        try:
-            duration = int(context.args[0])
-        except:
-            pass
+    # 1. 解析套餐参数 (支持: 月付/年付/终身/monthly/yearly/lifetime/30/365/36500)
+    arg = ' '.join(context.args).lower().strip() if context.args else 'yearly'
 
-    plan = 'lifetime' if duration >= 3650 else 'yearly' if duration >= 365 else f'{duration}d'
-    code = generate_activation_code(db, duration_days=duration, plan=plan)
+    PLAN_ALIASES = {
+        # 中文别名
+        '月': 'monthly', '月付': 'monthly', '包月': 'monthly', '一月': 'monthly', '月度': 'monthly',
+        '年': 'yearly', '年付': 'yearly', '包年': 'yearly', '一年': 'yearly', '年度': 'yearly',
+        '终身': 'lifetime', '永久': 'lifetime', '买断': 'lifetime', '不限期': 'lifetime',
+        # 英文别名
+        'm': 'monthly', 'monthly': 'monthly',
+        'y': 'yearly', 'yearly': 'yearly', 'year': 'yearly',
+        'l': 'lifetime', 'lifetime': 'lifetime', 'forever': 'lifetime',
+        # 数字别名 (金额/天数/套餐代码)
+        '59': 'monthly', '59u': 'monthly',
+        '399': 'yearly', '399u': 'yearly',
+        '1299': 'lifetime', '1299u': 'lifetime',
+        '30': 'monthly', '365': 'yearly', '36500': 'lifetime',
+    }
+
+    plan = PLAN_ALIASES.get(arg)
+
+    # 2. 如果不是别名，尝试数字解析
+    if not plan:
+        try:
+            days = int(arg)
+            if days >= 3650:
+                plan = 'lifetime'
+            elif days >= 365:
+                plan = 'yearly'
+            elif days >= 28:
+                plan = 'monthly'
+            else:
+                await update.message.reply_text(
+                    f"❌ 套餐识别失败: {arg}\n\n"
+                    f"💡 请用以下任一方式:\n"
+                    f"  /gencode 月付\n"
+                    f"  /gencode 年付\n"
+                    f"  /gencode 终身\n\n"
+                    f"  /gencode 30   (30天=月付)\n"
+                    f"  /gencode 365  (1年=年付)\n"
+                    f"  /gencode 36500 (100年=终身)\n\n"
+                    f"  /gencode 59   (59U=月付)\n"
+                    f"  /gencode 399  (399U=年付)\n"
+                    f"  /gencode 1299 (1299U=终身)"
+                )
+                return
+        except ValueError:
+            await update.message.reply_text(
+                f"❌ 未知套餐: {arg}\n\n"
+                f"💡 可用: 月付 / 年付 / 终身 / 30 / 365 / 36500 / 59 / 399 / 1299"
+            )
+            return
+
+    p = SUBSCRIPTION_PLANS[plan]
+    code = generate_activation_code(db, duration_days=p['days'], plan=plan)
+
     await update.message.reply_text(
         f"🎫 激活码生成成功\n\n"
         f"激活码：`{code}`\n"
-        f"有效期：{duration} 天 ({plan})\n\n"
+        f"套餐: {p['emoji']} **{p['label']}** ({plan})\n"
+        f"价格: ${p['price']} USDT\n"
+        f"有效期: {p['days']}天 {('(永久)' if p['days']>=36500 else '')}\n\n"
         f"📋 使用方法:\n"
-        f"发给用户: /activate {code}\n\n"
-        f"⚠️ 一次使用，请妥善保存"
+        f"   发给用户: /activate {code}\n\n"
+        f"⚠️ 一次使用，请妥善保存",
+        parse_mode='Markdown'
     )
 
 
@@ -1167,6 +1217,9 @@ INTENT_KEYWORDS = {
     'plan_monthly':  ['月付', '月度', '按月', '59', '59u', '59usdt', '一月', '包月'],
     'plan_yearly':   ['年付', '年度', '按年', '399', '399u', '399usdt', '一年', '包年', '年会员', '年订阅'],
     'plan_lifetime': ['终身', '永久', '1299', '1299u', '1299usdt', '买断', '一次买断', '终身会员', '终身订阅', '不限期'],
+
+    # Owner生成激活码 (仅Owner可用，但识别要给提示)
+    'gencode': ['生成激活码', '生成月付激活码', '生成年付激活码', '生成终身激活码', '出个码', '给我个码', '生成一个码', '要个激活码', '发个激活码', 'gencode'],
 }
 
 
@@ -1248,6 +1301,7 @@ async def handle_natural_language(update, context):
         'plan_monthly': '1️⃣ 月付 $59',
         'plan_yearly': '2️⃣ 年付 $399',
         'plan_lifetime': '3️⃣ 终身 $1299',
+        'gencode': '🎫 生成激活码 (Owner)',
     }
     await update.message.reply_text(
         f"🎤 识别意图：{intent_emoji.get(intent, intent)}"
@@ -1299,6 +1353,17 @@ async def handle_natural_language(update, context):
         product = 'king' if intent == 'subscribe_king' else '20x'
         context.args = [product]
         await cmd_subscribe(update, context)
+    elif intent == 'gencode':
+        # 从自然语言中提取套餐
+        plan_arg = None
+        if '月付' in text or '月' in text or '59' in text:
+            plan_arg = '月付'
+        elif '年付' in text or '年' in text or '399' in text:
+            plan_arg = '年付'
+        elif '终身' in text or '永久' in text or '1299' in text:
+            plan_arg = '终身'
+        context.args = [plan_arg] if plan_arg else ['yearly']
+        await cmd_gencode(update, context)
 
 
 async def cmd_help(update, context):
