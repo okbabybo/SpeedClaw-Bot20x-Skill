@@ -546,19 +546,41 @@ PRODUCTS = {
     },
 }
 
+# 产品价格表 (每个产品独立档位价格)
+# 现货(BotKing)与合约(Bot20x)同价，通票(两都要)加价
+PRODUCT_PRICES = {
+    "king": {
+        "monthly":  59,
+        "yearly":   399,
+        "lifetime": 1299,
+    },
+    "20x": {
+        "monthly":  59,
+        "yearly":   399,
+        "lifetime": 1299,
+    },
+    "both": {
+        "monthly":  99,    # 通票月付
+        "yearly":   599,   # 通票年付
+        "lifetime": 1999,  # 通票终身
+    },
+}
+
 
 def render_subscribe_message(product="all"):
     """统一渲染订阅方案消息
 
     Args:
-        product: 'king' / '20x' / 'all' (默认全部)
+        product: 'king' / '20x' / 'both' / 'all' (默认全部)
     """
     if product == "all":
-        header = "💳 SpeedClaw 产品订阅 (现货+合约)"
+        header = "💳 SpeedClaw 产品订阅 (现货+合约+通票)"
     elif product == "king":
         header = "💳 SpeedClaw BotKing 现货订阅"
     elif product == "20x":
         header = "💳 SpeedClaw Bot20x 合约订阅"
+    elif product == "both":
+        header = "💳 SpeedClaw 现货+合约 通票订阅"
     else:
         header = "💳 SpeedClaw 产品订阅"
 
@@ -568,32 +590,36 @@ def render_subscribe_message(product="all"):
         "═══════════════════════════════",
     ]
 
+    # 决定显示哪些产品
     if product == "all":
-        for pkey, prod in PRODUCTS.items():
+        show_products = ["king", "20x", "both"]
+    else:
+        show_products = [product]
+
+    for pidx, pid in enumerate(show_products):
+        price_map = PRODUCT_PRICES[pid]
+        if pid == "both":
+            lines.append(f"🟡🟢 **现货+合约 通票** (同时控制2个机器人)")
+            lines.append("   • BotKing现货 6币种网格 + Bot20x合约 BTC/ETH")
+            lines.append("   • 适合两个产品都要的客户，加价40%比单买2个产品优惠")
+        else:
+            prod = PRODUCTS[pid]
             lines.append(f"{prod['emoji']} {prod['name']}")
             for d in prod['desc']:
                 lines.append(d)
-            lines.append("")
-        lines.append("═══════════════════════════════")
-    else:
-        prod = PRODUCTS[product]
-        lines.append(f"{prod['emoji']} {prod['name']}")
-        for d in prod['desc']:
-            lines.append(d)
         lines.append("")
-        lines.append("═══════════════════════════════")
-
-    for plan_key, p in SUBSCRIPTION_PLANS.items():
-        lines.append(f"{p['emoji']} **{p['label']}会员** {p.get('tag','')}")
-        lines.append(f"   💵 ${p['price']} USDT")
-        if p['days'] >= 36500:
-            lines.append(f"   ♾️ 永久使用")
+        lines.append("   💰 **价格表**:")
+        lines.append(f"   1️⃣ 月付 ${price_map['monthly']} USDT (30天)")
+        lines.append(f"   2️⃣ 年付 ${price_map['yearly']} USDT (365天) 🔥 最受欢迎")
+        lines.append(f"   3️⃣ 终身 ${price_map['lifetime']} USDT (永久)")
+        if pid == "both":
+            lines.append(f"   💡 通票价=2个产品加价40%，比单买2个年付省 \$199/年")
         else:
-            lines.append(f"   ⏰ 有效期 {p['days']}天")
-        lines.append(f"   ✨ 源码 + 更新 + 技术支持")
-        if p.get('highlight'):
-            lines.append(f"   💡 平均每天仅 ${p['price']/365:.2f}，比月付省 ${(59*12-399):.0f}/年")
+            lines.append(f"   💡 平均每天仅 \${price_map['yearly']/365:.2f}，比月付省 \${price_map['monthly']*12-price_map['yearly']:.0f}/年")
         lines.append("")
+        if pidx < len(show_products) - 1:
+            lines.append("═══════════════════════════════")
+            lines.append("")
 
     lines.extend([
         "═══════════════════════════════",
@@ -603,17 +629,22 @@ def render_subscribe_message(product="all"):
         f"   ⚠️ 务必确认BSC网络，转错网络资产无法找回",
         "",
         "📋 参与流程 (4步):",
-        "   1️⃣  选择套餐 (月付/年付/终身)",
+        "   1️⃣  选择产品+档位 (现货/合约/通票 × 月付/年付/终身)",
         "   2️⃣  向地址转账对应金额 USDT",
-        f"   3️⃣  截图发送到此机器人，备注您的 Telegram ID",
+        f"      • 现货 59/399/1299  合约 59/399/1299  通票 99/599/1999",
+        f"   3️⃣  转账备注您的 Telegram ID (如：Telegram: 1234567890)",
         f"   4️⃣  收到激活码后，发送: /activate <激活码>",
         "",
         "═══════════════════════════════",
         "💡 智能提示:",
-        "   • 输入 \"月付\" / \"年付\" / \"终身\" → 自动显示对应套餐",
-        "   • 输入 \"59\" / \"399\" / \"1299\" → 自动识别金额",
-        "   • 输入 \"订阅\" 或 \"购买\" → 回到此菜单",
-        "   • 输入 \"现货订阅\" / \"合约订阅\" → 只看 BotKing / Bot20x",
+        "   • 输入 \"订阅\" / \"购买\" → 显示全部套餐",
+        "   • 输入 \"现货订阅\" / \"合约订阅\" / \"通票订阅\" → 只看单一产品",
+        "   • 输入 \"月付\" / \"年付\" / \"终身\" → 查看套餐详情",
+        "   • 输入 \"59\" / \"99\" / \"399\" / \"599\" / \"1299\" / \"1999\" → 识别金额",
+        "",
+        "🤖 **全自动模式 (推荐)**:",
+        "   转账备注 Telegram ID，系统自动检测+生成激活码+发送给您，无需联系Owner",
+        "   半自动模式: 发支付截图到机器人，Owner审核后发激活码",
         "",
         "📧 客服: @okbobox",
         "═══════════════════════════════",
@@ -630,6 +661,8 @@ async def cmd_subscribe(update, context):
             product = "king"
         elif arg in ("20x", "bot20x", "合约"):
             product = "20x"
+        elif arg in ("both", "通票", "套餐", "两个", "全部产品"):
+            product = "both"
     await update.message.reply_text(render_subscribe_message(product), parse_mode='Markdown')
 
 
