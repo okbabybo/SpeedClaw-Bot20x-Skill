@@ -47,12 +47,21 @@ BSC_RPCS = [
 ]
 
 # 订阅金额(USDT) → plan
+# 客户在memo里指定产品: '现货'/'合约'/'通票' (默认现货)
+# 金额表(每个产品独立价格):
+#   现货 (king):  59/399/1299
+#   合约 (20x):   59/399/1299
+#   通票 (both):  99/599/1999
 AMOUNT_TO_PLAN = {
+    # 现货 (BotKing)
     59:   {'plan': 'monthly',  'days': 30,   'product': 'king',  'label': 'BotKing现货月付'},
-    99:   {'plan': 'monthly',  'days': 30,   'product': 'both',  'label': '现货+合约通票月付'},
     399:  {'plan': 'yearly',   'days': 365,  'product': 'king',  'label': 'BotKing现货年付'},
-    599:  {'plan': 'yearly',   'days': 365,  'product': 'both',  'label': '现货+合约通票年付'},
     1299: {'plan': 'lifetime', 'days': 36500,'product': 'king',  'label': 'BotKing现货终身'},
+    # 合约 (Bot20x) — 用产品前缀区分
+    # 合约同价表需要memo里有"合约"关键词
+    # 通票 (现货+合约)
+    99:   {'plan': 'monthly',  'days': 30,   'product': 'both',  'label': '现货+合约通票月付'},
+    599:  {'plan': 'yearly',   'days': 365,  'product': 'both',  'label': '现货+合约通票年付'},
     1999: {'plan': 'lifetime', 'days': 36500,'product': 'both',  'label': '现货+合约通票终身'},
 }
 
@@ -413,6 +422,30 @@ def main_loop():
                             log.info(f"  ⏭ 金额不匹配: {amount} USDT")
                             state.setdefault('processed_txs', []).append(tx_hash)
                             continue
+
+                        # memo里有产品关键词 → 覆盖产品
+                        memo_l = memo.lower()
+                        if '合约' in memo or '20x' in memo_l or 'futures' in memo_l:
+                            # 合约同价位 (59/399/1299)
+                            product_override = '20x'
+                            plan_info = dict(plan_info)
+                            plan_info['product'] = '20x'
+                            plan_info['label'] = plan_info['label'].replace('现货', '合约')
+                            log.info(f"  → memo指定产品: 合约 (Bot20x)")
+                        elif '通票' in memo or 'both' in memo_l or '套餐' in memo or '两个' in memo:
+                            # 通票价不一样 (99/599/1999)
+                            if amount_int in (99, 599, 1999):
+                                log.info(f"  → memo指定产品: 通票")
+                            else:
+                                log.info(f"  ⚠ memo说通票但金额不匹配 ({amount})")
+                                state.setdefault('processed_txs', []).append(tx_hash)
+                                continue
+                        elif '现货' in memo or 'king' in memo_l or 'spot' in memo_l:
+                            # 现货 (默认)
+                            pass
+                        else:
+                            # 未指定 → 默认现货
+                            log.info(f"  → 未指定产品，默认现货")
 
                         state.setdefault('processed_txs', []).append(tx_hash)
                         save_state(state)
