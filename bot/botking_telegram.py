@@ -316,7 +316,7 @@ ID：`{user.id}`
 3️⃣ 终身   $1299 USDT
 
 💳 支付网络: BSC (BEP20)
-📧 客服: @Okbabybo
+📧 客服: @okbobox
 
 💡 也可直接输入 “订阅” / “月付” / “年付” / “终身” / “59” / “399” / “1299”
     · “现货订阅” → 只看 BotKing
@@ -615,7 +615,7 @@ def render_subscribe_message(product="all"):
         "   • 输入 \"订阅\" 或 \"购买\" → 回到此菜单",
         "   • 输入 \"现货订阅\" / \"合约订阅\" → 只看 BotKing / Bot20x",
         "",
-        "📧 客服: @Okbabybo",
+        "📧 客服: @okbobox",
         "═══════════════════════════════",
     ])
     return "\n".join(lines)
@@ -736,7 +736,7 @@ API绑定：{'✅ 已绑定' if api_bound else '❌ 未绑定'}
         msg += """
 ⏰ 订阅已过期
 
-💡 续订联系Owner: @Okbabybo
+💡 续订联系Owner: @okbobox
 """
 
     await update.message.reply_text(msg, parse_mode='Markdown')
@@ -764,7 +764,7 @@ async def cmd_activate(update, context):
             f"1. /bindapi 绑定你的Binance API\n"
             f"2. /kbalance 查看你的账户余额\n"
             f"3. /help 查看所有可用命令\n\n"
-            f"💡 联系: @Okbabybo"
+            f"💡 联系: @okbobox"
         )
     else:
         await update.message.reply_text(f"❌ {msg}")
@@ -1361,7 +1361,7 @@ API管理：
 ⚠️ 所有操作记录到日志
 
 ═══════════════════
-v1.4.4 · @Okbabybo
+v1.4.4 · @okbobox
 """
     await update.message.reply_text(msg)
 
