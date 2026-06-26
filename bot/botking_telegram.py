@@ -1502,6 +1502,9 @@ async def cmd_invite(update, context):
     invites = db.get('invites', {})
     my_invites = invites.get(str(user.id), {'count': 0, 'rewards': 0, 'codes': []})
 
+    rewards = my_invites.get('rewards', 0)
+    codes = my_invites.get('codes', [])
+
     lines = [
         "🎁 **邀请奖励计划**",
         "",
@@ -1509,24 +1512,103 @@ async def cmd_invite(update, context):
         f"`{invite_link}`",
         "",
         f"📊 你的邀请数据:",
-        f"  · 邀请付费客户: {my_invites['count']} 人",
-        f"  · 累计奖励: ${my_invites['rewards']} USDT",
-        f"  · 邀请人列表: {len(my_invites['codes'])} 人",
+        f"  · 邀请付费客户: {my_invites.get('count', 0)} 人",
+        f"  · 累计奖励: ${rewards} USDT",
+        f"  · 详细记录: {len(codes)} 条",
         "",
         "💡 **奖励规则**:",
-        "  · 朋友付款后:  返 10% USDT",
+        "  · 朋友付款后:  自动返 10% USDT",
         "  · 朋友买 399 → 你得 39.9",
         "  · 朋友买 1299 → 你得 129.9",
+        "  · 终身买断也能返！",
         "",
-        "💡 体验后付费也是有效邀请",
+        "💡 提现: 累计 \$50 USDT 后可申请提现",
     ]
 
-    if my_invites['codes']:
-        lines.append("\n📋 邀请记录:")
-        for c in my_invites['codes'][-5:]:
-            lines.append(f"  · 激活码: `{c}`")
+    if codes:
+        lines.append("\n📋 最近邀请记录:")
+        for c in codes[-5:]:
+            if isinstance(c, dict):
+                lines.append(f"  · 被邀请: {c.get('invitee', '?')} | 返利: +${c.get('reward', 0)}")
+            else:
+                lines.append(f"  · 激活码: `{c}`")
 
-    await update.message.reply_text("\n".join(lines), parse_mode='Markdown')
+    # 提现按钮
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    if rewards >= 50:
+        keyboard = [
+            [InlineKeyboardButton(f"💰 申请提现 ${rewards}", callback_data=f"withdraw_{user.id}")],
+        ]
+    else:
+        need = 50 - rewards
+        keyboard = [[InlineKeyboardButton(f"再推荐累计到 $50 (还差 ${need:.1f})", callback_data="show_subscribe")]]
+
+    await update.message.reply_text(
+        "\n".join(lines),
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
+async def cmd_withdraw(update, context):
+    """申请提现邀请奖励"""
+    user = update.effective_user
+    db = load_users()
+
+    invites = db.get('invites', {})
+    my_invites = invites.get(str(user.id), {'count': 0, 'rewards': 0, 'codes': []})
+    rewards = my_invites.get('rewards', 0)
+
+    if rewards < 50:
+        await update.message.reply_text(
+            f"❌ 提现门槛为 \$50 USDT\n"
+            f"当前累计: ${rewards} USDT\n"
+            f"还差 ${50-rewards} USDT 可提现"
+        )
+        return
+
+    # 检查是否已有待处理提现
+    pending_withdraws = db.get('pending_withdraws', {})
+    if str(user.id) in pending_withdraws:
+        await update.message.reply_text(
+            f"⏳ 你有提现申请待处理中\n"
+            f"金额: ${pending_withdraws[str(user.id)]['amount']} USDT\n"
+            f"请等待Owner转账"
+        )
+        return
+
+    # 创建提现申请
+    pending_withdraws[str(user.id)] = {
+        'amount': rewards,
+        'requested_at': time.time(),
+        'status': 'pending',
+    }
+    db.setdefault('pending_withdraws', {}).update(pending_withdraws)
+    save_users(db)
+
+    # 通知Owner
+    try:
+        await context.bot.send_message(
+            chat_id=OWNER_TELEGRAM_ID,
+            text=(
+                f"💰 **提现申请**\n\n"
+                f"申请人: {user.id} ({user.username or user.first_name or '匿名'})\n"
+                f"金额: ${rewards} USDT\n"
+                f"邀请数: {my_invites.get('count', 0)} 人\n\n"
+                f"转账地址: 需询问客户\n"
+                f"或联系: @{user.username or user.first_name}"
+            ),
+            parse_mode='Markdown'
+        )
+    except Exception:
+        pass
+
+    await update.message.reply_text(
+        f"✅ 提现申请已提交\n\n"
+        f"金额: ${rewards} USDT\n\n"
+        f"📤 Owner会在24h内联系你转账\n"
+        f"💡 状态查询: /withdraw"
+    )
 
 
 async def cmd_invite_for_callback(update, context):
@@ -1907,6 +1989,7 @@ INTENT_KEYWORDS = {
     'switch': ['切换', '切换产品', '换产品', '换套餐', 'switch', '升级', '降级', '要合约', '要现货'],
     'clean_orders': ['清理订单', '清理过期订单', '过期订单', '超时订单'],
     'invite': ['邀请', '邀请码', '邀请链接', '推荐', '推荐奖励', '邀请奖励', '拉人', '拉奖励', '怎么赚钱', '有奖励吗'],
+    'withdraw': ['提现', '返利', '提奖', '提取奖励', '拿奖励', '取钱', '提现金', 'withdraw', '怎么提现', '返利提现'],
 }
 
 
@@ -2105,6 +2188,8 @@ async def handle_natural_language(update, context):
         await cmd_clean_orders(update, context)
     elif intent == 'invite':
         await cmd_invite(update, context)
+    elif intent == 'withdraw':
+        await cmd_withdraw(update, context)
 
 
 # ===================== 半自动订阅支付验证 =====================
@@ -2405,6 +2490,57 @@ async def handle_payment_callback(update, context):
                 text=f"⚠️ 自动发送失败，请手动发给客户:\n\n激活码: {code}"
             )
 
+        # 🎁 自动返利 (半自动流程)
+        try:
+            inviter_id = db.get('invited_by', {}).get(str(payment['user_id']))
+            if inviter_id:
+                price = p.get('price', 0)
+                reward = round(price * 0.1, 2)
+
+                invites = db.setdefault('invites', {})
+                inviter = invites.setdefault(inviter_id, {'count': 0, 'rewards': 0, 'codes': []})
+                inviter['count'] += 1
+                inviter['rewards'] = round(inviter['rewards'] + reward, 2)
+                inviter['codes'].append({
+                    'code': code,
+                    'invitee': str(payment['user_id']),
+                    'amount': price,
+                    'reward': reward,
+                    'at': time.time(),
+                })
+                save_users(db)
+
+                # 私信邀请人
+                try:
+                    await context.bot.send_message(
+                        chat_id=int(inviter_id),
+                        text=(
+                            f"🎁 **返利到账！**\n\n"
+                            f"你的邀请人 {payment['user_id']} 已购买订阅\n"
+                            f"档位: {p['label']}\n"
+                            f"价格: ${price}\n"
+                            f"你的返利: **+${reward}** USDT (10%)\n\n"
+                            f"📊 累计奖励: ${inviter['rewards']} USDT\n"
+                            f"💡 查邀请: /invite"
+                        ),
+                        parse_mode='Markdown'
+                    )
+                except Exception:
+                    pass
+
+                # 通知Owner
+                await context.bot.send_message(
+                    chat_id=OWNER_TELEGRAM_ID,
+                    text=(
+                        f"🎁 **返利通知 (半自动)**\n\n"
+                        f"邀请人: {inviter_id}\n"
+                        f"被邀请: {payment['user_id']}\n"
+                        f"返利: +${reward} USDT"
+                    )
+                )
+        except Exception as e:
+            log(f"返利异常: {e}")
+
     elif data.startswith('pay_reject_'):
         payment_id = data.replace('pay_reject_', '')
         pending = load_pending_payments()
@@ -2612,6 +2748,8 @@ def main():
     app_tg.add_handler(CommandHandler("clean_orders", cmd_clean_orders))
     app_tg.add_handler(CommandHandler("invite", cmd_invite))
     app_tg.add_handler(CommandHandler("invite_bind", cmd_invite_bind))
+    app_tg.add_handler(CommandHandler("withdraw", cmd_withdraw))
+    app_tg.add_handler(CallbackQueryHandler(handle_payment_callback, pattern=r'^withdraw_'))
     app_tg.add_handler(CommandHandler("switch_confirm", cmd_switch_confirm))
 
     # unbindapi 确认按钮

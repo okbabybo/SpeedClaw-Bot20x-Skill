@@ -243,6 +243,54 @@ def generate_and_send_code(telegram_id, plan_info, tx_hash, amount):
     )
     send_telegram(OWNER_TELEGRAM_ID, owner_msg)
 
+    # 7. 🎁 自动返利 (10% USDT 给邀请人)
+    try:
+        inviter_id = db.get('invited_by', {}).get(str(telegram_id))
+        if inviter_id:
+            # 计算返利: 10% 套餐价格
+            plan = plan_info['plan']
+            product = plan_info.get('product', 'king')
+            from botking_auth import PRODUCT_PRICES
+            price = PRODUCT_PRICES.get(product, PRODUCT_PRICES.get('king', {})).get(plan, 0)
+            reward = round(price * 0.1, 2)
+
+            # 记录返利
+            invites = db.setdefault('invites', {})
+            inviter = invites.setdefault(inviter_id, {'count': 0, 'rewards': 0, 'codes': []})
+            inviter['count'] += 1
+            inviter['rewards'] = round(inviter['rewards'] + reward, 2)
+            inviter['codes'].append({
+                'code': code,
+                'invitee': str(telegram_id),
+                'amount': amount,
+                'reward': reward,
+                'at': time.time(),
+            })
+            save_users(db)
+
+            log.info(f"🎁 返利: 邀请人={inviter_id}, 被邀请={telegram_id}, 返=${reward}")
+
+            # 私信邀请人
+            inviter_msg = (
+                f"🎁 **返利到账！**\n\n"
+                f"你的邀请人 {telegram_id} 已购买订阅\n"
+                f"套餐: {plan_info['label']}\n"
+                f"价格: ${price}\n"
+                f"你的返利: **+${reward}** USDT (10%)\n\n"
+                f"📊 累计奖励: ${inviter['rewards']} USDT\n"
+                f"💡 查邀请: /invite\n\n"
+                f"💡 返利说明: 累计奖励达到 \$50 后可申请提现"
+            )
+            send_telegram(inviter_id, inviter_msg)
+
+            # 通知Owner
+            send_telegram(
+                OWNER_TELEGRAM_ID,
+                f"🎁 **返利通知**\n\n邀请人: {inviter_id}\n被邀请: {telegram_id}\n返利: +${reward} USDT"
+            )
+    except Exception as e:
+        log.error(f"返利异常: {e}")
+
     return True, code
 
 
