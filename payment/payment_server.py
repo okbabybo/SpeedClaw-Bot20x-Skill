@@ -9,7 +9,7 @@ import sys, os
 app = Flask(__name__)
 app.config['JSON_AS_ASCII'] = False
 
-CONTACT = "@Okbabybo"
+CONTACT = "@okbobox"
 GITHUB = "https://github.com/okbabybo/SpeedClaw-Bot20x-Skill"
 PRICE = "399 USDT / 年"
 WALLET = "0x344FfCe2f7B8f580D4e054F7213cb231CD15c3cd"
@@ -112,7 +112,7 @@ PAGE = """
   <div class="contact">
     <h3>💬 联系订阅</h3>
     <p>复制下方 Telegram 直接联系我</p>
-    <a href="https://t.me/Okbabybo" class="telegram" target="_blank">@Okbabybo</a>
+    <a href="https://t.me/okbobox" class="telegram" target="_blank">@okbobox</a>
   </div>
 
   <p class="note">

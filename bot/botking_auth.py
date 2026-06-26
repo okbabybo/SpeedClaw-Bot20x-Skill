@@ -197,7 +197,7 @@ def require_owner(func):
             await update.message.reply_text(
                 "🚫 此命令仅限Owner使用\n\n"
                 f"你的权限级别: {level}\n"
-                "如有需要请联系老板 @Okbabybo"
+                "如有需要请联系老板 @okbobox"
             )
             return
         return await func(update, context, *args, **kwargs)

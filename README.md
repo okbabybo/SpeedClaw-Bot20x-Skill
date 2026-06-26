@@ -69,7 +69,7 @@
 ## 📋 订阅流程
 
 **第一步：联系购买**
-> Telegram：**@Okbabybo**
+> Telegram：**@okbobox**
 
 **第二步：付款**
 > 我会发送收款地址
@@ -122,7 +122,7 @@ pm2 start bot_king.py --name bot-king
 
 | 方式 | 信息 |
 |------|------|
-| Telegram | **@Okbabybo** |
+| Telegram | **@okbobox** |
 | Email | speedclawx@gmail.com |
 
 ---

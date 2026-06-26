@@ -311,5 +311,5 @@ rm /root/.openclaw/workspace/bot_king_state.json && pm2 restart bot-king
 ## 订阅信息
 
 - 价格：$399.9 USDT/年
-- 联系：@Okbabybo
+- 联系：@okbobox
 - 订阅地址：https://okbabybo.github.io/SpeedClaw-Bot20x-Skill/

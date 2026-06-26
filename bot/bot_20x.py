@@ -20,13 +20,13 @@ def verify_license():
     try:
         lic_file = Path(LICENSE_FILE)
         if not lic_file.exists():
-            log("❌ 授权文件不存在，请联系 @Okbabybo 获取授权码")
+            log("❌ 授权文件不存在，请联系 @okbobox 获取授权码")
             return False
         with open(lic_file) as f:
             db = json.load(f)
         lic_db = db.get("licenses", [])
         if not lic_db:
-            log("❌ 无授权码记录，请联系 @Okbabybo 获取授权码")
+            log("❌ 无授权码记录，请联系 @okbobox 获取授权码")
             return False
         now = datetime.now()
         for lic in lic_db:
@@ -37,7 +37,7 @@ def verify_license():
                 days_left = (expires - now).days
                 log(f"✅ 授权有效 | 到期：{lic['expires'][:10]}（还剩{days_left}天） | {lic.get('email','')}")
                 return True
-        log("❌ 授权码已过期，请联系 @Okbabybo 续费")
+        log("❌ 授权码已过期，请联系 @okbobox 续费")
         return False
     except Exception as e:
         log(f"❌ 授权验证失败：{e}，请检查授权文件")
@@ -305,7 +305,7 @@ def startup_self_check():
     log("启动自检...")
     # 第一步：验证授权
     if not verify_license():
-        log("❌ 授权验证失败，Bot拒绝启动。请联系 Telegram @Okbabybo 获取授权")
+        log("❌ 授权验证失败，Bot拒绝启动。请联系 Telegram @okbobox 获取授权")
         log("下载地址：https://github.com/okbabybo/SpeedClaw-Bot20x-Skill")
         exit(1)
     # 第二步：验证API

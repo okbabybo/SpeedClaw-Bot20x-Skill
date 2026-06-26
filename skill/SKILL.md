@@ -18,7 +18,7 @@
 | 杠杆 | 20x |
 | 交易所 | Binance USDT-M |
 | 策略评分 | 87/100 |
-| 作者 | @Okbabybo |
+| 作者 | @okbobox |
 
 ---
 
