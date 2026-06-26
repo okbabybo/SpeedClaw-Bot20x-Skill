@@ -1250,28 +1250,28 @@ async def cmd_restart_bot20x(update, context):
 # ===================== 自然语言处理 =====================
 INTENT_KEYWORDS = {
     # BotKing 现货 (k前缀)
-    'kstatus': ['king状态', 'kstatus', 'king', 'BotKing状态', '现货状态', '现货机器人', '现货怎么'],
-    'kbalance': ['king余额', 'kbalance', '现货余额', '现货账户', '现货钱', '现货有多少', 'BotKing余额'],
-    'kpositions': ['king持仓', 'kpositions', '现货持仓', '现货仓位', 'BotKing持仓', '现货货'],
+    'kstatus': ['king状态', 'kstatus', 'king', 'BotKing状态', '现货状态', '现货机器人', '现货怎么', '现货跑了没', '现货跑着没', '现货跑着吗', '现货跑没', '现货开了吗', '现货好吗', '现货好了吗', '现货怎么样', '现货活着吗', '现货开着吗', '现货开着没', '现货跑'],
+    'kbalance': ['king余额', 'kbalance', '现货余额', '现货账户', '现货钱', '现货有多少', 'BotKing余额', '现货多少钱', '现货还剩多少', '现货剩多少', '现货账号', '现货资金', '看看现货', '我现货', '现货资金多少'],
+    'kpositions': ['king持仓', 'kpositions', '现货持仓', '现货仓位', 'BotKing持仓', '现货货', '现货开了什么', '现货开了啥', '现货仓位详情', '现货明细'],
     'kmode': ['king模式', 'kmode', '现货模式', '现货市场', '现货趋势', 'BotKing模式'],
-    'kprofit': ['king盈亏', 'kprofit', '现货盈亏', '现货赚', 'BotKing盈亏', '现货收益'],
-    'klog': ['king日志', 'klog', '现货日志', '现货log', 'BotKing日志'],
+    'kprofit': ['king盈亏', 'kprofit', '现货盈亏', '现货赚', 'BotKing盈亏', '现货收益', '现货亏', '现货赚了多少', '现货亏了多少', '现货总账'],
+    'klog': ['king日志', 'klog', '现货日志', '现货log', 'BotKing日志', '现货最近', '现货干嘛了', '现货干了什么'],
 
     # Bot20x 合约 (x前缀)
-    'xstatus': ['20x状态', 'xstatus', 'Bot20x状态', '合约状态', '合约机器人', '合约怎么', 'bot20x', 'x状态'],
-    'xbalance': ['20x余额', 'xbalance', '合约余额', '合约账户', '合约钱', '合约有多少', 'Bot20x余额', 'x余额'],
-    'xpositions': ['20x持仓', 'xpositions', '合约持仓', '合约仓位', 'Bot20x持仓', '合约货', 'x持仓'],
-    'xprofit': ['20x盈亏', 'xprofit', '合约盈亏', '合约赚', 'Bot20x盈亏', '合约收益', 'x盈亏'],
-    'xlog': ['20x日志', 'xlog', '合约日志', '合约log', 'Bot20x日志', 'x日志'],
+    'xstatus': ['20x状态', 'xstatus', 'Bot20x状态', '合约状态', '合约机器人', '合约怎么', 'bot20x', 'x状态', '合约跑着没', '合约跑着吗', '合约跑了没', '20x跑着没', '20x跑着吗', '20x跑', '合约活了', '20x活着吗', '20x开了吗', '20x开了没', '20x怎么样', '合约开着吗', '合约开着没', '合约怎么样', '合约好吗', '合约好了吗', '合约活着吗', '合约启动了'],
+    'xbalance': ['20x余额', 'xbalance', '合约余额', '合约账户', '合约钱', '合约有多少', 'Bot20x余额', 'x余额', '合约多少钱', '合约还剩多少', '合约剩多少', '合约资金', '合约账号', '看看合约'],
+    'xpositions': ['20x持仓', 'xpositions', '合约持仓', '合约仓位', 'Bot20x持仓', '合约货', 'x持仓', '合约开了什么', '合约明细'],
+    'xprofit': ['20x盈亏', 'xprofit', '合约盈亏', '合约赚', 'Bot20x盈亏', '合约收益', 'x盈亏', '合约亏', '合约赚了多少', '合约亏了多少'],
+    'xlog': ['20x日志', 'xlog', '合约日志', '合约log', 'Bot20x日志', 'x日志', '合约最近', '合约干嘛了'],
 
     # BotKing 控制
-    'start_bot': ['启动现货', '现货启动', '启动BotKing', '现货跑起来', '现货开', '现货干'],
-    'stop_bot': ['停止现货', '现货停', '停止BotKing', '现货别跑了'],
+    'start_bot': ['启动现货', '现货启动', '启动BotKing', '现货跑起来', '现货开', '现货干', '现货开始', '现货跑', '现货干起来', '现货拉起来', '现货启动一下'],
+    'stop_bot': ['停止现货', '现货停', '停止BotKing', '现货别跑了', '现货关了', '现货关闭', '现货停下来', '现货停掉', '现货关了', '现货关', '现货关了'],
     'restart_bot': ['重启现货', '现货重启', '重启BotKing', '现货重新'],
 
     # Bot20x 控制
-    'start_bot20x': ['启动合约', '合约启动', '启动Bot20x', '合约跑起来', '合约开', '合约干', '20x启动', '启动20x', '启动bot20x'],
-    'stop_bot20x': ['停止合约', '合约停', '停止Bot20x', '合约别跑了', '20x停', '20x停止', '停bot20x'],
+    'start_bot20x': ['启动合约', '合约启动', '启动Bot20x', '合约跑起来', '合约开', '合约干', '20x启动', '启动20x', '启动bot20x', '20x跑', '20x跑起来', '20x开', '20x干', '20x开始', '20x干起来'],
+    'stop_bot20x': ['停止合约', '合约停', '停止Bot20x', '合约别跑了', '20x停', '20x停止', '停bot20x', '20x关了', '20x关闭', '20x停掉'],
     'restart_bot20x': ['重启合约', '合约重启', '重启Bot20x', '合约重新', '20x重启', '重启20x', '重启bot20x'],
 
     # 帮助
@@ -1307,14 +1307,24 @@ def detect_intent(text):
     for intent, keywords in INTENT_KEYWORDS.items():
         score = 0
         for kw in keywords:
-            if kw.lower() in text_lower:
+            kw_l = kw.lower()
+            if kw_l in text_lower:
+                # 状态查询关键词优先级高于控制
+                # “跑了/开着/活了/状态/怎么样/如何” 是状态
+                # “启动/开始/跑起来” 是控制
+                is_status_keyword = any(x in kw_l for x in ['跑了', '跑着', '活了', '开着', '开了', '状态', '怎么', '活着', '好不好', '好吗'])
+                is_control_keyword = any(x in kw_l for x in ['启动', '开始', '跑起来', '跑', '干', '关', '停', '重启'])
                 # Bot20x/BotKing特定关键词优先 (因为有歧义)
-                if intent.startswith('x') and '20x' in kw.lower():
-                    score += 100 + len(kw)
-                elif intent.startswith('k') and 'king' in kw.lower():
-                    score += 100 + len(kw)
+                if intent.startswith('x') and '20x' in kw_l:
+                    base = 100 + len(kw_l)
+                elif intent.startswith('k') and 'king' in kw_l:
+                    base = 100 + len(kw_l)
                 else:
-                    score += len(kw)
+                    base = len(kw_l)
+                # 状态词优先级+50，控制词不降低（移除之前的bug逻辑）
+                if is_status_keyword:
+                    base += 50
+                score += base
         if score > 0:
             scores[intent] = score
 
