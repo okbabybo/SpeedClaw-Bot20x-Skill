@@ -1017,6 +1017,198 @@ async def cmd_renew(update, context):
 
 2. 转账后发支付截图 (备注: '续费+{plan_label}'), Owner手动发码
 """
+
+
+async def cmd_trial(update, context):
+    """生成/领取体验码 (仅1次/人, 7天BotKing现货体验)"""
+    user = update.effective_user
+    db = load_users()
+
+    # 检查是否已领取过体验
+    if str(user.id) in db.get('trial_used', {}):
+        trial_info = db['trial_used'][str(user.id)]
+        used_at = datetime.fromtimestamp(trial_info['used_at']).strftime('%Y-%m-%d %H:%M')
+        await update.message.reply_text(
+            f"❌ 你已领取过体验码 (于 {used_at})\n\n"
+            f"每人仅限 1 次体验\n"
+            f"请 /subscribe 购买正式订阅"
+        )
+        return
+
+    # 检查是否已是订阅会员 (会员不允许领体验码)
+    level = get_user_level(db, user.id)
+    if level in ('owner', 'admin'):
+        await update.message.reply_text(
+            "❌ 你是订阅会员，无需领取体验码\n\n"
+            "快去交易 /kstatus /kbalance"
+        )
+        return
+
+    # 生成体验激活码 (7天BotKing现货)
+    code = generate_activation_code(db, duration_days=7, plan='trial', product='king')
+    db['trial_used'] = db.get('trial_used', {})
+    db['trial_used'][str(user.id)] = {
+        'telegram_id': str(user.id),
+        'used_at': time.time(),
+        'code': code,
+    }
+    save_users(db)
+
+    msg = f"""🎁 **体验码领取成功！**
+
+激活码: `{code}`
+有效期: 7天
+产品: 🟡 BotKing现货 (6个币种网格交易)
+
+💡 **下一步**:
+1. /activate {code} (激活订阅)
+2. /bindapi <key> <secret> (绑定Binance API)
+3. /start_bot (启动现货机器人)
+4. /kbalance (查看账户)
+
+⚠️ 提示: 体验码仅可领 1 次，过期后可 /subscribe 购买正式订阅。
+   有问题: @okbobox
+"""
+    await update.message.reply_text(msg, parse_mode='Markdown')
+
+
+async def cmd_switch(update, context):
+    """切换产品 (现货<->合约<->通票) - 仅Owner可用"""
+    user = update.effective_user
+    db = load_users()
+    if not is_owner(db, user.id):
+        await update.message.reply_text("🚫 仅Owner可用")
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "用法: /switch <user_id> <product>\n"
+            "product: king / 20x / both\n\n"
+            "示例: /switch 123456789 both (升级为通票)"
+        )
+        return
+
+    target_id = context.args[0]
+    new_product = context.args[1].lower()
+    if new_product not in ('king', '20x', 'both'):
+        await update.message.reply_text("❌ product必须是: king / 20x / both")
+        return
+
+    admin = db.get('admins', {}).get(target_id)
+    if not admin:
+        await update.message.reply_text(f"❌ 用户 {target_id} 不是admin")
+        return
+
+    old_product = admin.get('product', 'both')
+    admin['product'] = new_product
+    save_users(db)
+
+    product_emoji = {'king': '🟡现货', '20x': '🟢合约', 'both': '🟡🟢通票'}
+    await update.message.reply_text(
+        f"✅ 用户 {target_id} 产品已切换\n"
+        f"   {old_product} → {new_product} ({product_emoji[new_product]})"
+    )
+
+    # 通知客户
+    try:
+        await update.get_bot().send_message(
+            chat_id=int(target_id),
+            text=(
+                f"🔄 你的订阅产品已切换！\n\n"
+                f"新产品: {product_emoji[new_product]}\n\n"
+                f"如需查询权限: /mysub"
+            ),
+            parse_mode='Markdown'
+        )
+    except Exception:
+        pass
+
+
+async def cmd_history(update, context):
+    """历史交易记录 (从bot状态文件读取)"""
+    user = update.effective_user
+    db = load_users()
+    level = get_user_level(db, user.id)
+
+    if level not in ('owner', 'admin'):
+        await update.message.reply_text("🚫 此功能仅订阅会员可用")
+        return
+
+    # 读取bot状态文件中的历史成交
+    STATE_FILE = Path('/root/.openclaw/workspace/binance_state.json')
+    lines = ["📜 **历史交易记录** (最近20笔)\n"]
+
+    if not STATE_FILE.exists():
+        await update.message.reply_text(
+            "📜 **历史交易记录**\n\n"
+            "暂无成交记录 (机器人未启动或未成交)"
+        )
+        return
+
+    try:
+        import json
+        state = json.loads(STATE_FILE.read_text())
+        # bot状态文件通常有 trades / closed_positions 字段
+        trades = state.get('trades', [])
+        if not trades:
+            await update.message.reply_text(
+                "📜 **历史交易记录**\n\n"
+                "暂无成交记录"
+            )
+            return
+        # 最近20笔
+        for t in trades[-20:]:
+            ts = datetime.fromtimestamp(t.get('time', 0)).strftime('%m-%d %H:%M')
+            symbol = t.get('symbol', '?')
+            side = t.get('side', '?')
+            price = t.get('price', 0)
+            qty = t.get('qty', 0)
+            pnl = t.get('pnl', 0)
+            side_emoji = '🟢' if side == 'buy' else '🔴'
+            pnl_str = f"+${pnl:.2f}" if pnl >= 0 else f"-${abs(pnl):.2f}"
+            lines.append(
+                f"{side_emoji} {ts} {symbol} {side} @ ${price:.2f} × {qty}\n"
+                f"   盈亏: {pnl_str}"
+            )
+        await update.message.reply_text("\n".join(lines), parse_mode='Markdown')
+    except Exception as e:
+        await update.message.reply_text(f"❌ 读取历史失败: {e}")
+
+
+async def cmd_clean_orders(update, context):
+    """清理超时未审核订单 (超过24小时未处理的)"""
+    user = update.effective_user
+    db = load_users()
+    if not is_owner(db, user.id):
+        await update.message.reply_text("🚫 仅Owner可用")
+        return
+
+    PENDING_FILE = Path('/root/.openclaw/workspace/.pending_payments.json')
+    if not PENDING_FILE.exists():
+        await update.message.reply_text("✅ 没有订单需要清理")
+        return
+
+    pending = json.loads(PENDING_FILE.read_text())
+    now = time.time()
+    timeout = 24 * 3600
+    cleaned = []
+    for pid, p in list(pending.items()):
+        if p.get('status') == 'pending' and now - p.get('created_at', 0) > timeout:
+            p['status'] = 'expired'
+            p['expired_at'] = now
+            cleaned.append(pid)
+
+    with open(PENDING_FILE, 'w') as f:
+        json.dump(pending, f, indent=2, ensure_ascii=False)
+
+    if cleaned:
+        await update.message.reply_text(
+            f"✅ 清理 {len(cleaned)} 个超时订单\n"
+            f"状态已设为 expired (过期)，不再待审"
+        )
+    else:
+        await update.message.reply_text("✅ 没有超时订单")
+
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 
@@ -1433,6 +1625,10 @@ INTENT_KEYWORDS = {
     'unbindapi': ['unbindapi', '解绑api', '解绑api', '解除绑定', '解绑', '解除api', '取消绑定', 'unbind', '不绑了'],
     'myorders': ['我的订单', '我的付款', '订单状态', '订单记录', 'myorders', '我的订单', '查看订单', '我的订阅订单'],
     'renew': ['续费', '续订', 'renew', '怎么续费', '怎么续订', '续期', '延卡', '延长', '充值', '我要续费', '再续一年', '再续', '续上'],
+    'trial': ['体验', '体验码', '体验一下', '试用', '试用码', '试一下', '免费试试', '领体验码', '要体验', '可以体验吗', '能试试吗', 'trial'],
+    'history': ['历史', '交易记录', '历史交易', '成交记录', '我的交易', 'history', '账单', '我的账单'],
+    'switch': ['切换', '切换产品', '换产品', '换套餐', 'switch', '升级', '降级', '要合约', '要现货'],
+    'clean_orders': ['清理订单', '清理过期订单', '过期订单', '超时订单'],
 }
 
 
@@ -1609,6 +1805,14 @@ async def handle_natural_language(update, context):
             renew_arg = '终身'
         context.args = [renew_arg] if renew_arg else []
         await cmd_renew(update, context)
+    elif intent == 'trial':
+        await cmd_trial(update, context)
+    elif intent == 'history':
+        await cmd_history(update, context)
+    elif intent == 'switch':
+        await cmd_switch(update, context)
+    elif intent == 'clean_orders':
+        await cmd_clean_orders(update, context)
 
 
 # ===================== 半自动订阅支付验证 =====================
@@ -1964,15 +2168,25 @@ API管理：
 
 订单与订阅：
 /subscribe     - 查看6档订阅方案 (现货/合约/通票)
+/trial         - 领取体验码 (7天现货, 每人限1次)
 /activate <码> - 激活激活码
 /mysub         - 我的订阅状态 (含产品+到期)
 /myorders      - 查看我的订单状态 (半自动付款后查)
 /renew         - 一键续费 (自动生成套餐详情+地址)
 
+══════ 📊 查询与交易 ══════
+/kstatus /xstatus     - 现货/合约机器人状态
+/kbalance /xbalance   - 现货/合约账户余额
+/kpositions /xpositions - 持仓
+/kprofit /xprofit     - 盈亏
+/history     - 历史成交记录 (最近20笔)
+
 ══════ 👑 Owner专用 ══════
 /gencode [产品] [档位] - 生成激活码 (现货/合约/通票 × 月付/年付/终身)
+/switch <id> <产品>   - 切换用户产品 (现货/合约/通票)
 /listusers     - 查看所有用户
 /grant <id>    - 授权用户
+/clean_orders  - 清理超时订单 (24h+)
 
 ══════ 🦞 自然语言 ══════
 "现货余额" "Bot20x状态" "持仓怎么样"
@@ -2082,6 +2296,10 @@ def main():
     app_tg.add_handler(CommandHandler("unbindapi", cmd_unbindapi))
     app_tg.add_handler(CommandHandler("myorders", cmd_myorders))
     app_tg.add_handler(CommandHandler("renew", cmd_renew))
+    app_tg.add_handler(CommandHandler("trial", cmd_trial))
+    app_tg.add_handler(CommandHandler("switch", cmd_switch))
+    app_tg.add_handler(CommandHandler("history", cmd_history))
+    app_tg.add_handler(CommandHandler("clean_orders", cmd_clean_orders))
 
     # unbindapi 确认按钮
     app_tg.add_handler(CallbackQueryHandler(handle_payment_callback, pattern=r'^unbind_'))
