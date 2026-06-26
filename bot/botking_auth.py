@@ -99,12 +99,17 @@ def register_user(db, telegram_id, username='', first_name=''):
     return db['users'][telegram_id]
 
 
-def generate_activation_code(db, duration_days=365, plan='yearly'):
-    """生成激活码 (老板后台用)"""
+def generate_activation_code(db, duration_days=365, plan='yearly', product='both'):
+    """生成激活码 (老板后台用)
+
+    Args:
+        product: 'king' (现货) / '20x' (合约) / 'both' (现货+合约)
+    """
     code = secrets.token_urlsafe(12).upper().replace('_', '').replace('-', '')[:16]
     db['pending_codes'][code] = {
         'code': code,
         'plan': plan,
+        'product': product,  # king=现货, 20x=合约, both=通票
         'duration_days': duration_days,
         'created_at': time.time(),
         'used_by': None,
@@ -138,6 +143,7 @@ def activate_code(db, telegram_id, code):
         'activated_at': time.time(),
         'expire_at': time.time() + duration * 86400,
         'plan': plan,
+        'product': code_info.get('product', 'both'),  # 默认both兼容旧码
         'code_used': code,
         'api_key': None,    # 用户自己的API密钥
         'api_secret': None,
@@ -145,7 +151,30 @@ def activate_code(db, telegram_id, code):
     }
 
     save_users(db)
-    return True, f"激活成功!{plan}会员,有效期{duration}天"
+    product = code_info.get('product', 'both')
+    product_name = {'king': 'BotKing现货', '20x': 'Bot20x合约', 'both': '现货+合约通票'}.get(product, product)
+    return True, f"激活成功!{plan}会员 ({product_name}),有效期{duration}天"
+
+
+def get_user_product(telegram_id):
+    """获取用户的产品权限: king / 20x / both"""
+    db = load_users()
+    admin = db.get('admins', {}).get(str(telegram_id))
+    if admin and admin.get('expire_at', 0) > time.time():
+        return admin.get('product', 'both')
+    return None
+
+
+def has_product_access(telegram_id, product):
+    """检查用户是否有某个产品的权限
+    product: 'king' 或 '20x'
+    """
+    user_product = get_user_product(telegram_id)
+    if not user_product:
+        return False
+    if user_product == 'both':
+        return True
+    return user_product == product
 
 
 def bind_api(db, telegram_id, api_key, api_secret):

@@ -842,7 +842,8 @@ async def cmd_gencode(update, context):
         return
 
     # 1. 解析套餐参数 (支持: 月付/年付/终身/monthly/yearly/lifetime/30/365/36500)
-    arg = ' '.join(context.args).lower().strip() if context.args else 'yearly'
+    args_list = context.args if context.args else ['yearly']
+    full_arg = ' '.join(args_list).lower().strip()
 
     PLAN_ALIASES = {
         # 中文别名
@@ -860,52 +861,70 @@ async def cmd_gencode(update, context):
         '30': 'monthly', '365': 'yearly', '36500': 'lifetime',
     }
 
-    plan = PLAN_ALIASES.get(arg)
+    PRODUCT_ALIASES = {
+        # 现货 (BotKing)
+        '现货': 'king', 'king': 'king', 'spot': 'king',
+        '现货版': 'king', '现货机器': 'king', '现货机器人': 'king',
+        'k': 'king', 'botking': 'king', 'bot_k': 'king', 'bot_king': 'king',
+        # 合约 (Bot20x)
+        '合约': '20x', '20x': '20x', 'futures': '20x',
+        '合约版': '20x', '合约机器人': '20x', '合约机器': '20x',
+        'x': '20x', 'bot20x': '20x', 'bot_20x': '20x', 'botx': '20x',
+        # 通票 (现货+合约)
+        '通票': 'both', '全部': 'both', '两个': 'both', '俩': 'both',
+        '现货合约': 'both', '合约现货': 'both', '现货+合约': 'both', '合约+现货': 'both',
+        'all': 'both', 'both': 'both', 'full': 'both',
+    }
 
-    # 2. 如果不是别名，尝试数字解析
+    # 2. 扫描args列表提取plan + product
+    plan = None
+    product = None
+    for arg in args_list:
+        arg_l = arg.lower().strip()
+        if arg_l in PLAN_ALIASES and not plan:
+            plan = PLAN_ALIASES[arg_l]
+            continue
+        if arg_l in PRODUCT_ALIASES and not product:
+            product = PRODUCT_ALIASES[arg_l]
+            continue
+        # 尝试数字解析为天数
+        if not plan:
+            try:
+                days = int(arg)
+                if days >= 3650:
+                    plan = 'lifetime'
+                elif days >= 365:
+                    plan = 'yearly'
+                elif days >= 28:
+                    plan = 'monthly'
+            except ValueError:
+                pass
+
+    # 3. 默认值
     if not plan:
-        try:
-            days = int(arg)
-            if days >= 3650:
-                plan = 'lifetime'
-            elif days >= 365:
-                plan = 'yearly'
-            elif days >= 28:
-                plan = 'monthly'
-            else:
-                await update.message.reply_text(
-                    f"❌ 套餐识别失败: {arg}\n\n"
-                    f"💡 请用以下任一方式:\n"
-                    f"  /gencode 月付\n"
-                    f"  /gencode 年付\n"
-                    f"  /gencode 终身\n\n"
-                    f"  /gencode 30   (30天=月付)\n"
-                    f"  /gencode 365  (1年=年付)\n"
-                    f"  /gencode 36500 (100年=终身)\n\n"
-                    f"  /gencode 59   (59U=月付)\n"
-                    f"  /gencode 399  (399U=年付)\n"
-                    f"  /gencode 1299 (1299U=终身)"
-                )
-                return
-        except ValueError:
-            await update.message.reply_text(
-                f"❌ 未知套餐: {arg}\n\n"
-                f"💡 可用: 月付 / 年付 / 终身 / 30 / 365 / 36500 / 59 / 399 / 1299"
-            )
-            return
+        plan = 'yearly'
+    if not product:
+        product = 'both'  # 默认通票 (老客户兼容)
 
     p = SUBSCRIPTION_PLANS[plan]
-    code = generate_activation_code(db, duration_days=p['days'], plan=plan)
+    code = generate_activation_code(db, duration_days=p['days'], plan=plan, product=product)
+
+    product_label = {'king': '🟡 BotKing现货', '20x': '🟢 Bot20x合约', 'both': '🟡🟢 现货+合约通票'}[product]
 
     await update.message.reply_text(
         f"🎫 激活码生成成功\n\n"
         f"激活码：`{code}`\n"
         f"套餐: {p['emoji']} **{p['label']}** ({plan})\n"
+        f"产品: {product_label}\n"
         f"价格: ${p['price']} USDT\n"
         f"有效期: {p['days']}天 {('(永久)' if p['days']>=36500 else '')}\n\n"
         f"📋 使用方法:\n"
         f"   发给用户: /activate {code}\n\n"
-        f"⚠️ 一次使用，请妥善保存",
+        f"⚠️ 一次使用，请妥善保存\n"
+        f"💡 用法示例:\n"
+        f"   /gencode 年付 现货\n"
+        f"   /gencode 年付 合约\n"
+        f"   /gencode 年付 通票",
         parse_mode='Markdown'
     )
 
@@ -1219,7 +1238,7 @@ INTENT_KEYWORDS = {
     'plan_lifetime': ['终身', '永久', '1299', '1299u', '1299usdt', '买断', '一次买断', '终身会员', '终身订阅', '不限期'],
 
     # Owner生成激活码 (仅Owner可用，但识别要给提示)
-    'gencode': ['生成激活码', '生成月付激活码', '生成年付激活码', '生成终身激活码', '出个码', '给我个码', '生成一个码', '要个激活码', '发个激活码', 'gencode'],
+    'gencode': ['生成激活码', '生成月付激活码', '生成年付激活码', '生成终身激活码', '生成现货激活码', '生成合约激活码', '生成通票激活码', '生成现货年付激活码', '生成合约年付激活码', '生成现货月付激活码', '生成合约月付激活码', '生成现货终身激活码', '生成合约终身激活码', '出个码', '给我个码', '生成一个码', '要个激活码', '发个激活码', 'gencode'],
 }
 
 
@@ -1354,7 +1373,7 @@ async def handle_natural_language(update, context):
         context.args = [product]
         await cmd_subscribe(update, context)
     elif intent == 'gencode':
-        # 从自然语言中提取套餐
+        # 从自然语言中提取套餐 + 产品
         plan_arg = None
         if '月付' in text or '月' in text or '59' in text:
             plan_arg = '月付'
@@ -1362,7 +1381,16 @@ async def handle_natural_language(update, context):
             plan_arg = '年付'
         elif '终身' in text or '永久' in text or '1299' in text:
             plan_arg = '终身'
-        context.args = [plan_arg] if plan_arg else ['yearly']
+
+        product_arg = None
+        if '通票' in text or '全部' in text or '两个' in text:
+            product_arg = '通票'
+        elif '现货' in text or 'king' in text.lower():
+            product_arg = '现货'
+        elif '合约' in text or '20x' in text.lower():
+            product_arg = '合约'
+
+        context.args = [a for a in [plan_arg, product_arg] if a] or ['yearly']
         await cmd_gencode(update, context)
 
 
