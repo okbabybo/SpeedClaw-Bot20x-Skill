@@ -286,6 +286,13 @@ async def cmd_start(update, context):
     register_user(db, user.id, user.username or '', user.first_name or '')
     level = get_user_level(db, user.id)
 
+    # 处理邀请码: /start INV123456789
+    if context.args and context.args[0].startswith('INV'):
+        inviter_id = context.args[0].replace('INV', '')
+        if inviter_id.isdigit() and inviter_id != str(user.id):
+            db.setdefault('invited_by', {})[str(user.id)] = inviter_id
+            save_users(db)
+
     level_badge = {
         'owner': '👑 Owner (老板)',
         'admin': '🛡️ Admin (订阅会员)',
@@ -763,7 +770,7 @@ ID：`{user.id}`
         plan_label = {'monthly': '月付', 'yearly': '年付', 'lifetime': '终身'}.get(plan, plan)
         msg += f"""
 产品：{product_emoji}
-套餐：{plan_label} ({plan})
+套餐：{plan_label} ({plan}){' 🎁体验中' if plan == 'trial' else ''}
 剩余天数：{days} 天
 到期时间：{datetime.fromtimestamp(expire).strftime('%Y-%m-%d %H:%M')}
 API绑定：{'✅ 已绑定' if api_bound else '❌ 未绑定'}
@@ -771,6 +778,18 @@ API绑定：{'✅ 已绑定' if api_bound else '❌ 未绑定'}
 💡 下一步：
 {'API未绑定 - 输入 /bindapi' if not api_bound else '订阅生效中 - 享受全部功能'}
 {'套餐已过期 - 输入 /subscribe 续费' if remain < 0 else ''}"""
+
+        # 🎁体验专用提示
+        if plan == 'trial':
+            if remain > 0:
+                msg += f"""
+
+🎁 **体验还剩 {days} 天**, 到期后折扣价: /renew 了解"""
+            else:
+                msg += """
+
+🎁 体验已结束
+仅 $59/月 或 $399/年 享受同等功能, 限时优惠: /subscribe"""
 
     elif level == 'user' or level == 'unknown':
         msg += """
@@ -1100,13 +1119,83 @@ async def cmd_switch(update, context):
         return
 
     old_product = admin.get('product', 'both')
+    if old_product == new_product:
+        await update.message.reply_text(
+            f"⚠️ 用户 {target_id} 已是 {new_product}, 无需切换"
+        )
+        return
+
+    # 差价检查 (升级才需补差, 降级不退)
+    plan = admin.get('plan', 'monthly')
+    old_price = PRODUCT_PRICES.get(old_product, PRODUCT_PRICES['king'])[plan]
+    new_price = PRODUCT_PRICES.get(new_product, PRODUCT_PRICES['king'])[plan]
+    diff = new_price - old_price
+
+    product_emoji = {'king': '🟡现货', '20x': '🟢合约', 'both': '🟡🟢通票'}
+
+    if diff > 0:
+        # 升级需补差价
+        await update.message.reply_text(
+            f"⚠️ 升级需补差价: ${diff}\n\n"
+            f"  原产品: {product_emoji[old_product]} = ${old_price}\n"
+            f"  新产品: {product_emoji[new_product]} = ${new_price}\n"
+            f"  需补: ${diff} USDT\n\n"
+            f"如同意, 回复: /switch_confirm {target_id} {new_product}"
+        )
+        # 暂存意向
+        db.setdefault('switch_pending', {})[target_id] = {
+            'old_product': old_product,
+            'new_product': new_product,
+            'diff': diff,
+            'at': time.time(),
+        }
+        save_users(db)
+        return
+
     admin['product'] = new_product
+    save_users(db)
+
+    await update.message.reply_text(
+        f"✅ 用户 {target_id} 产品已切换\n"
+        f"   {product_emoji[old_product]} → {product_emoji[new_product]}\n"
+        f"   补差: $0 (降级/同价)"
+    )
+
+
+async def cmd_switch_confirm(update, context):
+    """确认升级补差后的产品切换"""
+    user = update.effective_user
+    db = load_users()
+    if not is_owner(db, user.id):
+        await update.message.reply_text("🚫 仅Owner可用")
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text("用法: /switch_confirm <user_id> <product>")
+        return
+
+    target_id = context.args[0]
+    new_product = context.args[1].lower()
+
+    pending = db.get('switch_pending', {}).get(target_id)
+    if not pending:
+        await update.message.reply_text(f"❌ 用户 {target_id} 没有待确认的切换")
+        return
+
+    admin = db.get('admins', {}).get(target_id)
+    if not admin:
+        await update.message.reply_text(f"❌ 用户 {target_id} 不是admin")
+        return
+
+    admin['product'] = new_product
+    db.get('switch_pending', {}).pop(target_id, None)
     save_users(db)
 
     product_emoji = {'king': '🟡现货', '20x': '🟢合约', 'both': '🟡🟢通票'}
     await update.message.reply_text(
-        f"✅ 用户 {target_id} 产品已切换\n"
-        f"   {old_product} → {new_product} ({product_emoji[new_product]})"
+        f"✅ 升级完成\n"
+        f"   {product_emoji[pending['old_product']]} → {product_emoji[new_product]}\n"
+        f"   补差: ${pending['diff']} USDT"
     )
 
     # 通知客户
@@ -1141,21 +1230,31 @@ async def cmd_history(update, context):
     if not STATE_FILE.exists():
         await update.message.reply_text(
             "📜 **历史交易记录**\n\n"
-            "暂无成交记录 (机器人未启动或未成交)"
+            "机器人未启动，暂无成交记录"
         )
         return
 
     try:
         import json
         state = json.loads(STATE_FILE.read_text())
-        # bot状态文件通常有 trades / closed_positions 字段
+
+        # 1. trades 字段 (主要)
         trades = state.get('trades', [])
+
+        # 2. 兼容 positions (当前持仓 + last_report)
         if not trades:
-            await update.message.reply_text(
-                "📜 **历史交易记录**\n\n"
-                "暂无成交记录"
-            )
+            lines = ["📜 **交易历史概览**\n"]
+            lines.append(f"  · 更新时间: {datetime.fromtimestamp(state.get('updated', 0)).strftime('%Y-%m-%d %H:%M')}")
+            lines.append(f"  · 当前持仓: {len(state.get('positions', []))} 个")
+            lines.append(f"  · 今日盈亏: ${state.get('daily_pnl', 0):.2f}")
+            lines.append(f"  · 总盈亏: ${state.get('total_pnl', 0):.2f}")
+            lines.append(f"  · 多仓: {'有' if state.get('has_long') else '无'}")
+            lines.append(f"  · 空仓: {'有' if state.get('has_short') else '无'}")
+            lines.append(f"  · 上次报告: {state.get('last_report', '无')}")
+            lines.append("\n💡 交易历史保存在 Binance API 侧，可查询 Binance 账户成交记录")
+            await update.message.reply_text("\n".join(lines), parse_mode='Markdown')
             return
+
         # 最近20笔
         for t in trades[-20:]:
             ts = datetime.fromtimestamp(t.get('time', 0)).strftime('%m-%d %H:%M')
@@ -1350,6 +1449,101 @@ async def cmd_grant(update, context):
     if not is_owner(db, user.id):
         await update.message.reply_text("🚫 仅Owner可授权用户")
         return
+
+
+async def cmd_invite(update, context):
+    """生成我的邀请链接 + 查邀请奖励"""
+    user = update.effective_user
+    db = load_users()
+    BOT_USERNAME = 'my_botking_V2_bot'  # 去掉@
+
+    invite_code = f"INV{user.id}"
+    invite_link = f"https://t.me/{BOT_USERNAME}?start={invite_code}"
+
+    invites = db.get('invites', {})
+    my_invites = invites.get(str(user.id), {'count': 0, 'rewards': 0, 'codes': []})
+
+    lines = [
+        "🎁 **邀请奖励计划**",
+        "",
+        f"你的邀请链接:",
+        f"`{invite_link}`",
+        "",
+        f"📊 你的邀请数据:",
+        f"  · 邀请付费客户: {my_invites['count']} 人",
+        f"  · 累计奖励: ${my_invites['rewards']} USDT",
+        f"  · 邀请人列表: {len(my_invites['codes'])} 人",
+        "",
+        "💡 **奖励规则**:",
+        "  · 朋友付款后:  返 10% USDT",
+        "  · 朋友买 399 → 你得 39.9",
+        "  · 朋友买 1299 → 你得 129.9",
+        "",
+        "💡 体验后付费也是有效邀请",
+    ]
+
+    if my_invites['codes']:
+        lines.append("\n📋 邀请记录:")
+        for c in my_invites['codes'][-5:]:
+            lines.append(f"  · 激活码: `{c}`")
+
+    await update.message.reply_text("\n".join(lines), parse_mode='Markdown')
+
+
+async def cmd_invite_bind(update, context):
+    """Owner记录邀请奖励 (返现10%)"""
+    user = update.effective_user
+    db = load_users()
+    if not is_owner(db, user.id):
+        await update.message.reply_text("🚫 仅Owner可记录")
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "用法: /invite_bind <invite_id> <code>\n"
+            "invite_id: 邀请人Telegram ID\n"
+            "code: 被邀请人使用的激活码\n\n"
+            "示例: /invite_bind 123456789 ABC123XYZ"
+        )
+        return
+
+    inviter_id = context.args[0]
+    code = context.args[1].upper()
+
+    pending = db.get('pending_codes', {})
+    if code not in pending:
+        await update.message.reply_text(f"❌ 激活码 {code} 不存在")
+        return
+
+    code_info = pending[code]
+    used_by = code_info.get('used_by')
+    if not used_by:
+        await update.message.reply_text(f"❌ 激活码 {code} 尚未被使用")
+        return
+
+    # 计算奖励 (按价格10%)
+    plan = code_info.get('plan', 'monthly')
+    product = code_info.get('product', 'king')
+    price = PRODUCT_PRICES.get(product, PRODUCT_PRICES['king'])[plan]
+    reward = round(price * 0.1, 2)
+
+    # 记录
+    invites = db.setdefault('invites', {})
+    inviter = invites.setdefault(inviter_id, {'count': 0, 'rewards': 0, 'codes': []})
+    inviter['count'] += 1
+    inviter['rewards'] += reward
+    inviter['codes'].append(code)
+    save_users(db)
+
+    await update.message.reply_text(
+        f"✅ 邀请奖励记录成功\n\n"
+        f"邀请人: {inviter_id}\n"
+        f"被邀请人: {used_by}\n"
+        f"套餐: {plan} ({product})\n"
+        f"价格: ${price}\n"
+        f"奖励: ${reward} (10%)\n\n"
+        f"累计奖励: ${inviter['rewards']} USDT"
+    )
 
     if not context.args:
         await update.message.reply_text("用法: /grant <telegram_id> [天数]")
@@ -1629,6 +1823,7 @@ INTENT_KEYWORDS = {
     'history': ['历史', '交易记录', '历史交易', '成交记录', '我的交易', 'history', '账单', '我的账单'],
     'switch': ['切换', '切换产品', '换产品', '换套餐', 'switch', '升级', '降级', '要合约', '要现货'],
     'clean_orders': ['清理订单', '清理过期订单', '过期订单', '超时订单'],
+    'invite': ['邀请', '邀请码', '邀请链接', '推荐', '推荐奖励', '邀请奖励', '拉人', '拉奖励', '怎么赚钱', '有奖励吗'],
 }
 
 
@@ -1813,6 +2008,8 @@ async def handle_natural_language(update, context):
         await cmd_switch(update, context)
     elif intent == 'clean_orders':
         await cmd_clean_orders(update, context)
+    elif intent == 'invite':
+        await cmd_invite(update, context)
 
 
 # ===================== 半自动订阅支付验证 =====================
@@ -2300,6 +2497,9 @@ def main():
     app_tg.add_handler(CommandHandler("switch", cmd_switch))
     app_tg.add_handler(CommandHandler("history", cmd_history))
     app_tg.add_handler(CommandHandler("clean_orders", cmd_clean_orders))
+    app_tg.add_handler(CommandHandler("invite", cmd_invite))
+    app_tg.add_handler(CommandHandler("invite_bind", cmd_invite_bind))
+    app_tg.add_handler(CommandHandler("switch_confirm", cmd_switch_confirm))
 
     # unbindapi 确认按钮
     app_tg.add_handler(CallbackQueryHandler(handle_payment_callback, pattern=r'^unbind_'))
