@@ -338,8 +338,36 @@ ID：`{user.id}`
 🤖 **全自动模式 (推荐)**:
     转账备注您的 Telegram ID + 产品 (如 “Telegram: 1234567890 合约”),
     ≤15秒自动激活并发送激活码
+
+═══════════════════════════════
+🎁 **邀请奖励**: 朋友付费 你得 10% 返现 (永久有效)
+    例: 朋友买 ¥399 → 你得 ¥39.9
+    💡 /invite 生成你的专属邀请链接
 """
-    await update.message.reply_text(msg, parse_mode='Markdown')
+    # 生成邀请链接
+    invite_code = f"INV{user.id}"
+    invite_link = f"https://t.me/my_botking_V2_bot?start={invite_code}"
+
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    keyboard = [
+        [InlineKeyboardButton("💎 查看订阅方案", callback_data="show_subscribe"),
+         InlineKeyboardButton("🎁 邀请赚钱", callback_data="show_invite")],
+        [InlineKeyboardButton("🔗 复制邀请链接", callback_data=f"copy_invite_{user.id}")],
+        [InlineKeyboardButton("📚 帮助菜单", callback_data="show_help")],
+    ]
+    await update.message.reply_text(
+        msg,
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+    # 单独发邀请链接 (便于复制)
+    invite_text = (
+        f"🎁 **你的专属邀请链接**\n\n"
+        f"`{invite_link}`\n\n"
+        f"📊 你的邀请数据: 详见 /invite"
+    )
+    await update.message.reply_text(invite_text, parse_mode='Markdown')
 
 
 async def cmd_status(update, context):
@@ -668,6 +696,17 @@ def render_subscribe_message(product="all"):
         "",
         "📧 客服: @okbobox",
         "═══════════════════════════════",
+    ])
+
+    # 🎁 邀请奖励 (全局)
+    lines.extend([
+        "",
+        "🎁 **邀请奖励计划** (10%返利)",
+        "   • 朋友付款后，你获得 10% USDT 返现",
+        "   • 朋友买 399 → 你得 39.9 USDT",
+        "   • 朋友买 1299 → 你得 129.9 USDT",
+        "   • 终身买断也能返现！",
+        "   💡 查邀请链接 + 奖励: /invite",
     ])
     return "\n".join(lines)
 
@@ -1490,6 +1529,50 @@ async def cmd_invite(update, context):
     await update.message.reply_text("\n".join(lines), parse_mode='Markdown')
 
 
+async def cmd_invite_for_callback(update, context):
+    """邀请页用于 Inline 按钮回调"""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    query = update.callback_query
+    user = query.from_user
+    db = load_users()
+
+    BOT_USERNAME = 'my_botking_V2_bot'
+    invite_code = f"INV{user.id}"
+    invite_link = f"https://t.me/{BOT_USERNAME}?start={invite_code}"
+
+    invites = db.get('invites', {})
+    my_invites = invites.get(str(user.id), {'count': 0, 'rewards': 0, 'codes': []})
+
+    lines = [
+        "🎁 **邀请奖励计划**\n",
+        f"你的专属邀请链接:",
+        f"`{invite_link}`\n",
+        f"📊 **你的邀请数据**:",
+        f"  · 邀请付费客户: {my_invites['count']} 人",
+        f"  · 累计奖励: ${my_invites['rewards']} USDT\n",
+        "💡 **奖励规则**:",
+        "  · 朋友付款后: 返 10% USDT",
+        "  · 朋友买 399 → 你得 39.9",
+        "  · 朋友买 1299 → 你得 129.9",
+        "  · 终身买断也能返！\n",
+        "📢 分享邀请链接到:",
+        "  · Telegram 朋友",
+        "  · Twitter/X",
+        "  · 微信 / QQ群\n",
+        "💡 查详细: /invite",
+    ]
+
+    keyboard = [
+        [InlineKeyboardButton("🔗 复制邀请链接", callback_data=f"copy_invite_{user.id}")],
+        [InlineKeyboardButton("🔙 返回", callback_data="show_subscribe")],
+    ]
+    await query.edit_message_text(
+        "\n".join(lines),
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
 async def cmd_invite_bind(update, context):
     """Owner记录邀请奖励 (返现10%)"""
     user = update.effective_user
@@ -2126,6 +2209,21 @@ async def handle_payment_callback(update, context):
 
     data = query.data
 
+    # /start 菜单按钮
+    if data == 'show_subscribe':
+        await query.edit_message_text(render_subscribe_message('all'), parse_mode='Markdown')
+        return
+    if data == 'show_invite':
+        # 调用cmd_invite逻辑
+        await cmd_invite_for_callback(update, context)
+        return
+    if data == 'show_help':
+        await query.edit_message_text("💡 完整菜单: /help\n查看订阅: /subscribe\n查订阅: /mysub")
+        return
+    if data.startswith('copy_invite_'):
+        await query.answer("✅ 邀请链接已上方发送，可复制", show_alert=True)
+        return
+
     # unbindapi 确认
     if data.startswith('unbind_confirm_'):
         user_id = data.replace('unbind_confirm_', '')
@@ -2383,6 +2481,9 @@ API管理：
 /myorders      - 查看我的订单状态 (半自动付款后查)
 /renew         - 一键续费 (自动生成套餐详情+地址)
 
+🎁 推广赚钱：
+/invite        - 生成邀请链接 + 查奖励 (朋友付费返10%)
+
 ══════ 📊 查询与交易 ══════
 /kstatus /xstatus     - 现货/合约机器人状态
 /kbalance /xbalance   - 现货/合约账户余额
@@ -2515,6 +2616,7 @@ def main():
 
     # unbindapi 确认按钮
     app_tg.add_handler(CallbackQueryHandler(handle_payment_callback, pattern=r'^unbind_'))
+    app_tg.add_handler(CallbackQueryHandler(handle_payment_callback, pattern=r'^(show_|copy_)'))
     app_tg.add_handler(CommandHandler("gencode", cmd_gencode))
     app_tg.add_handler(CommandHandler("listusers", cmd_listusers))
     app_tg.add_handler(CommandHandler("grant", cmd_grant))
