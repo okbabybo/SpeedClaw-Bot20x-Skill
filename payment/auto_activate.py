@@ -36,6 +36,8 @@ except ImportError:
 # 配置
 OWNER_WALLET = "0x344FfCe2f7B8f580D4e054F7213cb231CD15c3cd"
 USDT_BSC_CONTRACT = "0x55d398326f99059fF775485246999027B3197955"
+# Owner提现私钥 (用于返利USDT转账, 从环境变量读取)
+OWNER_PRIVATE_KEY = os.environ.get('OWNER_PRIVATE_KEY', '')
 BSC_RPCS = [
     "https://bsc-dataseed.binance.org/",
     "https://bsc-dataseed1.binance.org/",
@@ -372,6 +374,60 @@ def scan_block(w3, block_number, owner_address):
     except Exception as e:
         log.error(f"scan_block {block_number} fail: {e}")
         return []
+
+
+def send_usdt_from_owner(to_address, amount_usdt):
+    """从Owner钱包发送USDT给指定地址
+
+    Args:
+        to_address: 收款地址 (BSC BEP20)
+        amount_usdt: 金额 (USDT, e.g. 39.9)
+
+    Returns:
+        tx_hash: 交易哈希
+
+    Raises:
+        ValueError: 未设置OWNER_PRIVATE_KEY环境变量
+        Exception: 发送失败
+    """
+    if not OWNER_PRIVATE_KEY:
+        raise ValueError(
+            "未设置OWNER_PRIVATE_KEY环境变量。\n"
+            "请在环境变量中提供老板BSC钱包私钥以启用自动提现转账。\n"
+            "设置方法: export OWNER_PRIVATE_KEY=0x..."
+        )
+
+    w3 = get_web3()
+    account = w3.eth.account.from_key(OWNER_PRIVATE_KEY)
+
+    # USDT转账: transfer(address,uint256)
+    # amount用6位小数 (USDT是6 decimals)
+    amount_int = int(amount_usdt * 10**6)
+    selector = w3.keccak(text='transfer(address,uint256)').hex()[:10]
+    addr_padded = '0x' + Web3.to_checksum_address(to_address)[2:].lower().rjust(64, '0')
+    amount_hex = hex(amount_int)[2:].rjust(64, '0')
+    data = '0x' + selector + addr_padded[2:] + amount_hex
+
+    # 构造交易
+    nonce = w3.eth.get_transaction_count(account.address)
+    gas_price = w3.eth.gas_price
+    tx = {
+        'nonce': nonce,
+        'to': Web3.to_checksum_address(USDT_BSC_CONTRACT),
+        'value': 0,
+        'data': data,
+        'gas': 100000,
+        'gasPrice': gas_price,
+        'chainId': 56,
+    }
+
+    # 签名
+    signed = account.sign_transaction(tx)
+
+    # 发送
+    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction).hex()
+    log.info(f"✅ 提现转账成功: {amount_usdt} USDT -> {to_address}, tx={tx_hash}")
+    return tx_hash
 
 
 def main_loop():

@@ -1567,48 +1567,277 @@ async def cmd_withdraw(update, context):
         )
         return
 
-    # 检查是否已有待处理提现
-    pending_withdraws = db.get('pending_withdraws', {})
-    if str(user.id) in pending_withdraws:
+    # 检查是否已设置提现地址
+    admin = db.get('admins', {}).get(str(user.id), {})
+    wallet = admin.get('withdraw_wallet')
+
+    if not wallet:
+        # 未设置地址 - 提示先去设置
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        keyboard = [
+            [InlineKeyboardButton("💳 立即设置提现地址", callback_data="set_wallet_start")],
+            [InlineKeyboardButton("💡 查看设置指南", callback_data="set_wallet_help")],
+        ]
         await update.message.reply_text(
-            f"⏳ 你有提现申请待处理中\n"
-            f"金额: ${pending_withdraws[str(user.id)]['amount']} USDT\n"
-            f"请等待Owner转账"
+            f"⚠️ 提现需要先设置提现地址\n\n"
+            f"可提现金额: ${rewards} USDT\n\n"
+            f"📋 设置方法:\n"
+            f"/setwallet <USDT-BSC地址>\n\n"
+            f"示例: /setwallet 0x344FfCe2f7B8f580D4e054F7213cb231CD15c3cd\n\n"
+            f"⚠️ 务必使用 BSC (BEP20) 地址，转错网络资产无法找回！\n"
+            f"⚠️ 建议使用交易所充值地址 (如Binance/OKX) 避免转错",
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(keyboard),
         )
         return
 
-    # 创建提现申请
+    # 检查是否已有待处理提现
+    pending_withdraws = db.get('pending_withdraws', {})
+    if str(user.id) in pending_withdraws:
+        existing = pending_withdraws[str(user.id)]
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        keyboard = [
+            [InlineKeyboardButton("❌ 取消申请", callback_data=f"cancel_withdraw_{user.id}")],
+        ]
+        await update.message.reply_text(
+            f"⏳ 你有提现申请待处理中\n\n"
+            f"金额: ${existing['amount']} USDT\n"
+            f"申请时间: {datetime.fromtimestamp(existing['requested_at']).strftime('%Y-%m-%d %H:%M')}\n"
+            f"提现地址: `{existing.get('wallet', wallet)}`\n\n"
+            f"💡 如需取消: 点下方按钮或联系 @okbobox",
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+        return
+
+    # 创建提现申请 (含预设地址)
     pending_withdraws[str(user.id)] = {
         'amount': rewards,
+        'wallet': wallet,
         'requested_at': time.time(),
         'status': 'pending',
     }
     db.setdefault('pending_withdraws', {}).update(pending_withdraws)
     save_users(db)
 
-    # 通知Owner
+    # 通知Owner (带预设地址, 一键转账)
     try:
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        keyboard = [
+            [InlineKeyboardButton(f"✅ 立即转账 ${rewards}", callback_data=f"pay_withdraw_{user.id}")],
+            [InlineKeyboardButton("❌ 拒绝", callback_data=f"reject_withdraw_{user.id}")],
+        ]
         await context.bot.send_message(
             chat_id=OWNER_TELEGRAM_ID,
             text=(
                 f"💰 **提现申请**\n\n"
-                f"申请人: {user.id} ({user.username or user.first_name or '匿名'})\n"
+                f"申请人: {user.id} (@{user.username or user.first_name or '匿名'})\n"
                 f"金额: ${rewards} USDT\n"
-                f"邀请数: {my_invites.get('count', 0)} 人\n\n"
-                f"转账地址: 需询问客户\n"
-                f"或联系: @{user.username or user.first_name}"
+                f"邀请数: {my_invites.get('count', 0)} 人\n"
+                f"提现地址: `{wallet}`\n\n"
+                f"⚠️ 点击下方按钮 → BSC转账 → 报交易哈希\n"
+                f"⚠️ 提现限额: \$50起, 单笔不超该用户累计"
             ),
-            parse_mode='Markdown'
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+    except Exception as e:
+        log(f"通知Owner提现申请失败: {e}")
+
+    await update.message.reply_text(
+        f"✅ 提现申请已提交\n\n"
+        f"金额: ${rewards} USDT\n"
+        f"提现地址: `{wallet}`\n\n"
+        f"📤 Owner会在24h内处理转账\n"
+        f"💡 状态查询: /withdraw\n"
+        f"💡 修改地址: /setwallet <新地址>",
+        parse_mode='Markdown',
+    )
+
+
+async def cmd_setwallet(update, context):
+    """设置USDT提现地址 (BSC BEP20)"""
+    user = update.effective_user
+    db = load_users()
+
+    if not context.args:
+        # 查看当前地址
+        admin = db.get('admins', {}).get(str(user.id), {})
+        wallet = admin.get('withdraw_wallet')
+        if wallet:
+            masked = wallet[:8] + '...' + wallet[-6:]
+            await update.message.reply_text(
+                f"💳 **当前提现地址**\n\n"
+                f"`{wallet}`\n\n"
+                f"💡 修改地址: /setwallet <新地址>\n"
+                f"⚠️ 务必BSC (BEP20) 地址，转错网络资产无法找回",
+                parse_mode='Markdown',
+            )
+        else:
+            await update.message.reply_text(
+                f"💳 **设置USDT提现地址**\n\n"
+                f"格式: /setwallet <USDT-BSC地址>\n\n"
+                f"示例: /setwallet 0x344FfCe2f7B8f580D4e054F7213cb231CD15c3cd\n\n"
+                f"⚠️ 务必确认是 BSC (BEP20) 地址！\n"
+                f"⚠️ 可用交易所充值地址 (Binance/OKX) 避免转错"
+            )
+        return
+
+    new_wallet = context.args[0].strip()
+
+    # 验证地址格式
+    if not (new_wallet.startswith('0x') and len(new_wallet) == 42):
+        await update.message.reply_text(
+            f"❌ 地址格式错误\n\n"
+            f"请提供 42位 0x开头的 BSC地址\n"
+            f"示例: 0x344FfCe2f7B8f580D4e054F7213cb231CD15c3cd"
+        )
+        return
+
+    # 验证checksum
+    try:
+        from web3 import Web3
+        if not Web3.is_address(new_wallet):
+            await update.message.reply_text(f"❌ 地址checksum错误: {new_wallet}")
+            return
+        canonical = Web3.to_checksum_address(new_wallet)
+    except ImportError:
+        canonical = new_wallet
+
+    # 保存
+    admin = db.setdefault('admins', {}).setdefault(str(user.id), {
+        'telegram_id': str(user.id),
+    })
+    admin['withdraw_wallet'] = canonical
+    admin['withdraw_wallet_set_at'] = time.time()
+    save_users(db)
+
+    await update.message.reply_text(
+        f"✅ 提现地址已设置\n\n"
+        f"地址: `{canonical}`\n\n"
+        f"💡 提现门槛: \$50 USDT\n"
+        f"💡 查余额: /withdraw\n"
+        f"💡 修改地址: /setwallet <新地址>",
+        parse_mode='Markdown',
+    )
+
+    # 通知Owner (新设置地址告警)
+    try:
+        await context.bot.send_message(
+            chat_id=OWNER_TELEGRAM_ID,
+            text=(
+                f"⚠️ **用户设置提现地址**\n\n"
+                f"用户: {user.id} (@{user.username or user.first_name})\n"
+                f"地址: `{canonical}`\n"
+                f"设置时间: {datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M')}\n\n"
+                f"请注意: 提现仅会转到此地址"
+            ),
+            parse_mode='Markdown',
         )
     except Exception:
         pass
 
-    await update.message.reply_text(
-        f"✅ 提现申请已提交\n\n"
-        f"金额: ${rewards} USDT\n\n"
-        f"📤 Owner会在24h内联系你转账\n"
-        f"💡 状态查询: /withdraw"
-    )
+
+async def cmd_mywallet(update, context):
+    """查看我的提现地址"""
+    await cmd_setwallet(update, context)
+
+
+async def cmd_pay_withdraw(update, context):
+    """Owner一键转账USDT给客户的提现地址"""
+    query = update.callback_query if hasattr(update, 'callback_query') and update.callback_query else None
+    if query:
+        await query.answer()
+        user_id = query.data.replace('pay_withdraw_', '')
+    else:
+        if not context.args:
+            await update.message.reply_text("用法: /pay_withdraw <user_id>")
+            return
+        user_id = context.args[0]
+
+    db = load_users()
+    if not query:
+        # 命令调用时验证Owner
+        if not is_owner(db, update.effective_user.id):
+            await update.message.reply_text("🚫 仅Owner可用")
+            return
+
+    # 查提现申请
+    pending = db.get('pending_withdraws', {})
+    withdraw = pending.get(str(user_id))
+    if not withdraw or withdraw.get('status') != 'pending':
+        msg_text = f"❌ 用户 {user_id} 没有待处理的提现申请"
+        if query:
+            await query.edit_message_text(msg_text)
+        else:
+            await update.message.reply_text(msg_text)
+        return
+
+    amount = withdraw['amount']
+    wallet = withdraw['wallet']
+
+    # 调用BSC转账
+    try:
+        sys.path.insert(0, '/root/.openclaw/workspace/speedClaw-Bot20x-Skill')
+        from payment.auto_activate import send_usdt_from_owner, BSC_RPC_URL, OWNER_WALLET
+        tx_hash = send_usdt_from_owner(wallet, amount)
+
+        # 标记已转账
+        withdraw['status'] = 'paid'
+        withdraw['paid_at'] = time.time()
+        withdraw['tx_hash'] = tx_hash
+        save_users(db)
+
+        # 扣减返利余额
+        invites = db.get('invites', {}).get(str(user_id), {})
+        if invites:
+            invites['rewards'] = max(0, round(invites.get('rewards', 0) - amount, 2))
+            invites.setdefault('withdraws', []).append({
+                'amount': amount,
+                'wallet': wallet,
+                'tx_hash': tx_hash,
+                'paid_at': time.time(),
+            })
+        save_users(db)
+
+        success_msg = (
+            f"✅ 提现已转账\n\n"
+            f"用户: {user_id}\n"
+            f"金额: ${amount} USDT\n"
+            f"地址: `{wallet}`\n"
+            f"交易: `{tx_hash}`\n\n"
+            f"🔗 https://bscscan.com/tx/{tx_hash}"
+        )
+        if query:
+            await query.edit_message_text(success_msg, parse_mode='Markdown')
+        else:
+            await update.message.reply_text(success_msg, parse_mode='Markdown')
+
+        # 通知客户
+        try:
+            bot = update.get_bot() if hasattr(update, 'get_bot') else context.bot
+            await bot.send_message(
+                chat_id=int(user_id),
+                text=(
+                    f"🎉 **提现已到账！**\n\n"
+                    f"金额: ${amount} USDT\n"
+                    f"地址: `{wallet}`\n"
+                    f"交易: `{tx_hash}`\n\n"
+                    f"🔗 https://bscscan.com/tx/{tx_hash}\n\n"
+                    f"请在钱包查收 (BSC USDT)"
+                ),
+                parse_mode='Markdown',
+            )
+        except Exception as e:
+            log(f"通知客户提现成功失败: {e}")
+
+    except Exception as e:
+        err_msg = f"❌ 转账失败: {e}"
+        if query:
+            await query.edit_message_text(err_msg)
+        else:
+            await update.message.reply_text(err_msg)
+
 
 
 async def cmd_invite_for_callback(update, context):
@@ -1990,6 +2219,8 @@ INTENT_KEYWORDS = {
     'clean_orders': ['清理订单', '清理过期订单', '过期订单', '超时订单'],
     'invite': ['邀请', '邀请码', '邀请链接', '推荐', '推荐奖励', '邀请奖励', '拉人', '拉奖励', '怎么赚钱', '有奖励吗'],
     'withdraw': ['提现', '返利', '提奖', '提取奖励', '拿奖励', '取钱', '提现金', 'withdraw', '怎么提现', '返利提现'],
+    'setwallet': ['setwallet', '设置地址', '设地址', '提现地址', '设置提现', '换地址', '改地址', '我的钱包', 'mywallet', '设置钱包'],
+    'mywallet': ['我的地址', '我的提现地址', '查地址', 'mywallet'],
 }
 
 
@@ -2190,6 +2421,10 @@ async def handle_natural_language(update, context):
         await cmd_invite(update, context)
     elif intent == 'withdraw':
         await cmd_withdraw(update, context)
+    elif intent == 'setwallet':
+        await cmd_setwallet(update, context)
+    elif intent == 'mywallet':
+        await cmd_mywallet(update, context)
 
 
 # ===================== 半自动订阅支付验证 =====================
@@ -2324,6 +2559,67 @@ async def handle_payment_callback(update, context):
         return
     if data == 'unbind_cancel':
         await query.edit_message_text("✅ 已取消")
+        return
+
+    # 提现管理
+    if data.startswith('reject_withdraw_'):
+        user_id = data.replace('reject_withdraw_', '')
+        db = load_users()
+        pending = db.get('pending_withdraws', {})
+        if str(user_id) in pending:
+            pending[str(user_id)]['status'] = 'rejected'
+            pending[str(user_id)]['rejected_at'] = time.time()
+            save_users(db)
+            await query.edit_message_text(
+                f"❌ 已拒绝提现\n\n"
+                f"用户: {user_id}\n"
+                f"金额: ${pending[str(user_id)].get('amount', 0)} USDT"
+            )
+            # 通知客户
+            try:
+                await context.bot.send_message(
+                    chat_id=int(user_id),
+                    text=f"❌ 你的提现申请被拒绝\n\n如有疑问联系 @okbobox",
+                )
+            except Exception:
+                pass
+        return
+    if data.startswith('cancel_withdraw_'):
+        user_id = data.replace('cancel_withdraw_', '')
+        db = load_users()
+        pending = db.get('pending_withdraws', {})
+        if str(user_id) in pending:
+            del pending[str(user_id)]
+            save_users(db)
+            await query.edit_message_text(
+                f"✅ 提现申请已取消\n\n"
+                f"你的提现申请已撤销\n"
+                f"余额仍存在, 可随时重新申请"
+            )
+        return
+    if data == 'set_wallet_start':
+        await query.edit_message_text(
+            "💳 **设置提现地址**\n\n"
+            "格式: `/setwallet <USDT-BSC地址>`\n\n"
+            "示例: `/setwallet 0x344FfCe2f7B8f580D4e054F7213cb231CD15c3cd`\n\n"
+            "⚠️ 务必使用 BSC (BEP20) 地址！\n"
+            "⚠️ 建议用交易所充值地址 (Binance/OKX) 避免转错",
+            parse_mode='Markdown',
+        )
+        return
+    if data == 'set_wallet_help':
+        await query.edit_message_text(
+            "💡 **设置USDT-BSC地址指南**\n\n"
+            "**1. Binance交易所**\n"
+            "   App → 钱包 → 充值 → 选USDT → 选BSC(BEP20)网络 → 复制地址\n\n"
+            "**2. OKX交易所**\n"
+            "   App → 资产 → 充值 → 选USDT → 选BSC(BEP20) → 复制地址\n\n"
+            "**3. Trust Wallet / MetaMask**\n"
+            "   钱包 → 接收USDT → 选BSC网络 → 复制地址\n\n"
+            "⚠️ 转错网络(ERC20/TRC20)资产无法找回！\n"
+            "✅ BSC (BEP20) 地址格式: 0x开头 + 40位字符",
+            parse_mode='Markdown',
+        )
         return
 
 
@@ -2619,6 +2915,9 @@ API管理：
 
 🎁 推广赚钱：
 /invite        - 生成邀请链接 + 查奖励 (朋友付费返10%)
+/setwallet     - 设置USDT提现地址 (BSC BEP20)
+/mywallet      - 查看我的提现地址
+/withdraw      - 申请提现 (门槛 \$50)
 
 ══════ 📊 查询与交易 ══════
 /kstatus /xstatus     - 现货/合约机器人状态
@@ -2749,6 +3048,9 @@ def main():
     app_tg.add_handler(CommandHandler("invite", cmd_invite))
     app_tg.add_handler(CommandHandler("invite_bind", cmd_invite_bind))
     app_tg.add_handler(CommandHandler("withdraw", cmd_withdraw))
+    app_tg.add_handler(CommandHandler("setwallet", cmd_setwallet))
+    app_tg.add_handler(CommandHandler("mywallet", cmd_mywallet))
+    app_tg.add_handler(CommandHandler("pay_withdraw", cmd_pay_withdraw))
     app_tg.add_handler(CallbackQueryHandler(handle_payment_callback, pattern=r'^withdraw_'))
     app_tg.add_handler(CommandHandler("switch_confirm", cmd_switch_confirm))
 
