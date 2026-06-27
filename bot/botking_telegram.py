@@ -246,6 +246,81 @@ def fetch_bot20x_full_realtime(api_key=None, api_secret=None):
         return None, str(e)
 
 
+def fetch_botking_full_realtime():
+    """BotKing实时查询 (调Binance现货API)
+    返回BotKing6币种+总USDT估值
+    返回 (data, err)
+    """
+    try:
+        import requests as req
+        import time as _t
+        import hmac as _hm
+        import hashlib as _hl
+
+        # 1. 查现货账户余额
+        base = "https://api.binance.com"
+        ts = str(int(_t.time() * 1000))
+        query = f"timestamp={ts}"
+        sig = _hm.new(BOT20X_SECRET.encode(), query.encode(), _hl.sha256).hexdigest()
+        url = f"{base}/api/v3/account?{query}&signature={sig}"
+        r = req.get(url, headers={"X-MBX-APIKEY": BOT20X_API_KEY}, timeout=10).json()
+        if 'balances' not in r:
+            return None, f"API返回异常: {r}"
+
+        balances = {}
+        for b in r['balances']:
+            free = float(b['free'])
+            locked = float(b['locked'])
+            if free + locked > 0:
+                balances[b['asset']] = {'free': free, 'locked': locked, 'total': free + locked}
+
+        # 2. BotKing 6币种当前价格
+        KING_SYMBOLS = ['BTC', 'ETH', 'BNB', 'SOL', 'AVAX', 'XRP']
+        prices = {}
+        for sym in KING_SYMBOLS:
+            try:
+                pr = req.get(f"{base}/api/v3/ticker/price?symbol={sym}USDT", timeout=5).json()
+                prices[sym] = float(pr.get('price', 0))
+            except Exception:
+                prices[sym] = 0
+
+        # 3. 计算 BotKing 币种 USDT 估值
+        king_assets = {}
+        king_total = 0
+        for sym in KING_SYMBOLS:
+            bal = balances.get(sym, {}).get('total', 0)
+            if bal > 0:
+                value = bal * prices.get(sym, 0)
+                king_assets[sym] = {
+                    'qty': bal,
+                    'price': prices.get(sym, 0),
+                    'usdt_value': value,
+                }
+                king_total += value
+
+        # 4. 其他现货 (非BotKing范围)
+        king_set = set(KING_SYMBOLS + ['USDT', 'USDC', 'BUSD', 'FDUSD', 'DAI'])
+        other = []
+        for asset, info in balances.items():
+            if asset not in king_set and info['total'] > 0:
+                other.append({'asset': asset, 'total': info['total']})
+
+        # 5. 稳定币余额
+        stable_total = 0
+        for s in ('USDT', 'USDC', 'BUSD', 'FDUSD', 'DAI'):
+            stable_total += balances.get(s, {}).get('total', 0)
+
+        return {
+            'king_assets': king_assets,
+            'king_total': king_total,
+            'other_assets': other,
+            'stable_total': stable_total,
+            'prices': prices,
+        }, None
+    except Exception as e:
+        return None, str(e)
+
+
 def send_long_message(update, text):
     """发送长消息，自动分段(Telegram限制4096字符)"""
     if len(text) <= 4000:
@@ -2177,6 +2252,99 @@ async def cmd_invite_bind(update, context):
     await update.message.reply_text(
         f"✅ 用户 `{target_id}` 已授权 {duration} 天"
     )
+async def cmd_kbalance_king(update, context):
+    """BotKing 6币种现货余额 (调Binance现货API)"""
+    await update.message.reply_text("🔄 查询Binance现货API...")
+    data, err = fetch_botking_full_realtime()
+    if err:
+        await update.message.reply_text(f"❌ 查询失败: {err}")
+        return
+
+    king_assets = data['king_assets']
+    king_total = data['king_total']
+    other = data['other_assets']
+    stable = data['stable_total']
+    prices = data['prices']
+
+    msg = f"💰 BotKing 现货账户 (实时 Binance API)\n\n"
+
+    if king_assets:
+        msg += "🔲 BotKing 6币种持仓:\n"
+        for sym, info in king_assets.items():
+            msg += f"  • {sym}: {info['qty']:.6f} @ ${info['price']:,.2f} = ${info['usdt_value']:.2f}\n"
+        msg += f"\n  💵 BotKing 总额: ${king_total:.2f}\n\n"
+    else:
+        msg += "🔲 BotKing 6币种: 无持仓\n\n"
+
+    if stable > 0:
+        msg += f"💵 稳定币余额: ${stable:.2f}\n"
+
+    if other:
+        msg += f"\n📦 其他现货 ({len(other)}种):\n"
+        for o in other[:10]:
+            msg += f"  • {o['asset']}: {o['total']:.6f}\n"
+        if len(other) > 10:
+            msg += f"  ...还有{len(other)-10}种\n"
+
+    msg += f"\n⏰ 查询时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    msg += f"\n⚡ 数据源: Binance Spot API"
+    await update.message.reply_text(msg)
+
+
+async def cmd_kpositions_king(update, context):
+    """BotKing 持仓实时 (从state+Binance API交叉验证)"""
+    await update.message.reply_text("🔄 查询Binance现货API...")
+
+    # 1. API实时余额
+    data, err = fetch_botking_full_realtime()
+    if err:
+        await update.message.reply_text(f"❌ API查询失败: {err}")
+        return
+
+    # 2. 本地state
+    state = read_state()
+    engines = state.get('engines', {})
+    grids = engines.get('grids', {})
+    trends = engines.get('trends', {})
+
+    king_assets = data['king_assets']
+    king_total = data['king_total']
+
+    msg = f"📊 BotKing 持仓对比 (实时 vs 本地)\n\n"
+
+    # API侧
+    msg += f"⚡ Binance API侧 ({len(king_assets)}币种):\n"
+    if king_assets:
+        for sym, info in king_assets.items():
+            local = grids.get(sym, {})
+            local_qty = local.get('position_qty', 0)
+            diff = info['qty'] - local_qty
+            warn = " ⚠️不一致" if abs(diff) > 0.0001 else " ✅"
+            msg += f"  • {sym}: API={info['qty']:.6f} vs 本地={local_qty:.6f}{warn}\n"
+    else:
+        msg += "  • 无持仓\n"
+    msg += f"  💵 API总估值: ${king_total:.2f}\n\n"
+
+    # 本地侧
+    msg += f"💾 本地State侧 ({len(grids)}网格+{len(trends)}趋势):\n"
+    if grids:
+        for sym, g in grids.items():
+            qty = g.get('position_qty', 0)
+            entry = g.get('entry_price', 0)
+            msg += f"  • 网格 {sym}: {qty:.6f} @ ${entry:.2f}\n"
+    if trends:
+        for sym, t in trends.items():
+            pos = t.get('position', {})
+            qty = pos.get('qty', 0)
+            entry = pos.get('entry', 0)
+            msg += f"  • 趋势 {sym}: {qty:.6f} @ ${entry:.2f}\n"
+    if not grids and not trends:
+        msg += "  • 本地无持仓记录\n"
+
+    msg += f"\n⏰ 查询时间: {datetime.now().strftime('%H:%M:%S')}"
+    await update.message.reply_text(msg)
+
+
 async def cmd_kstatus_bot20x(update, context):
     pm2 = get_bot20x_status()
     state = read_bot20x_state()
@@ -2390,6 +2558,8 @@ INTENT_KEYWORDS = {
     # BotKing 现货 (k前缀)
     'kstatus': ['king状态', 'kstatus', 'king', 'BotKing状态', '现货状态', '现货机器人', '现货怎么', '现货跑了没', '现货跑着没', '现货跑着吗', '现货跑没', '现货开了吗', '现货好吗', '现货好了吗', '现货怎么样', '现货活着吗', '现货开着吗', '现货开着没', '现货跑'],
     'kbalance': ['king余额', 'kbalance', '现货余额', '现货账户', '现货钱', '现货有多少', 'BotKing余额', '现货多少钱', '现货还剩多少', '现货剩多少', '现货账号', '现货资金', '看看现货', '我现货', '现货资金多少'],
+    'kbalance_api': ['现货真实余额', '现货API', 'king真实余额', 'kingAPI', 'king实时', '现货实时', '现货实际', 'king实际'],
+    'kpositions_api': ['现货真实持仓', 'kingAPI持仓', 'king真实持仓', '现货API持仓', 'king vs 本地', '现货 vs 本地'],
     'kpositions': ['king持仓', 'kpositions', '现货持仓', '现货仓位', 'BotKing持仓', '现货货', '现货开了什么', '现货开了啥', '现货仓位详情', '现货明细'],
     'kmode': ['king模式', 'kmode', '现货模式', '现货市场', '现货趋势', 'BotKing模式'],
     'kprofit': ['king盈亏', 'kprofit', '现货盈亏', '现货赚', 'BotKing盈亏', '现货收益', '现货亏', '现货赚了多少', '现货亏了多少', '现货总账'],
@@ -2555,7 +2725,9 @@ async def handle_natural_language(update, context):
         # BotKing
         'kstatus': cmd_status,
         'kbalance': cmd_balance,
+        'kbalance_api': cmd_kbalance_king,  # 实时API (Binance Spot)
         'kpositions': cmd_positions,
+        'kpositions_api': cmd_kpositions_king,  # 实时API交叉验证
         'kmode': cmd_mode,
         'kprofit': cmd_profit,
         # Bot20x
@@ -3364,6 +3536,8 @@ def main():
     app_tg.add_handler(CommandHandler("start", cmd_start))
     app_tg.add_handler(CommandHandler("status", cmd_status))
     app_tg.add_handler(CommandHandler("balance", cmd_balance))
+    app_tg.add_handler(CommandHandler("kbalance_api", cmd_kbalance_king))
+    app_tg.add_handler(CommandHandler("kpositions_api", cmd_kpositions_king))
     app_tg.add_handler(CommandHandler("positions", cmd_positions))
     app_tg.add_handler(CommandHandler("mode", cmd_mode))
     app_tg.add_handler(CommandHandler("profit", cmd_profit))
