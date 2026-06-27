@@ -1830,11 +1830,11 @@ async def cmd_pay_withdraw(update, context):
             f"✅ 提现已记录\n\n"
             f"用户: {user_id}\n"
             f"金额: ${amount} USDT\n"
-            f"地址: `{wallet}`\n"
-            f"交易: `{tx_hash}`\n\n"
+            f"地址: {wallet}\n"
+            f"交易: {tx_hash}\n\n"
             f"🔗 https://bscscan.com/tx/{tx_hash}"
         )
-        await update.message.reply_text(success_msg, parse_mode='Markdown')
+        await update.message.reply_text(success_msg)
 
         # 通知客户
         try:
@@ -1842,15 +1842,14 @@ async def cmd_pay_withdraw(update, context):
             await bot.send_message(
                 chat_id=int(user_id),
                 text=(
-                    f"🎉 **提现已到账！**\n\n"
+                    f"🎉 提现已到账！\n\n"
                     f"金额: ${amount} USDT\n"
-                    f"地址: `{wallet}`\n"
-                    f"交易: `{tx_hash}`\n\n"
+                    f"地址: {wallet}\n"
+                    f"交易: {tx_hash}\n\n"
                     f"🔗 https://bscscan.com/tx/{tx_hash}\n\n"
                     f"请在钱包查收 (BSC USDT)\n\n"
-                    f"💡 如未到账,联系 @okbobox"
+                    f"如未到账,联系 @okbobox"
                 ),
-                parse_mode='Markdown',
             )
         except Exception as e:
             log(f"通知客户提现成功失败: {e}")
