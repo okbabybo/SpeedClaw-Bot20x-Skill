@@ -1606,8 +1606,6 @@ async def cmd_clean_orders(update, context):
     else:
         await update.message.reply_text("✅ 没有超时订单")
 
-    await update.message.reply_text(msg, parse_mode='Markdown')
-
 
 # ===================== Owner 命令 =====================
 async def cmd_gencode(update, context):
