@@ -79,6 +79,7 @@ def is_admin(db, telegram_id):
 def register_user(db, telegram_id, username='', first_name=''):
     """注册新用户 (默认user级别)"""
     telegram_id = str(telegram_id)
+    db.setdefault('users', {})
     if telegram_id not in db['users']:
         db['users'][telegram_id] = {
             'telegram_id': telegram_id,
