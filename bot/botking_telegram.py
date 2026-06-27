@@ -3058,7 +3058,7 @@ async def handle_payment_callback(update, context):
             log(f"返利异常: {e}")
 
     elif data.startswith('pay_oneclick_'):
-        # 方案B3: 老板一键通过 (链上已验证)
+        # 方案B3: 老板一键通过 (链上已验证) → 自动激活+私信
         payment_id = data.replace('pay_oneclick_', '')
         pending = load_pending_payments()
         payment = pending.get(payment_id)
@@ -3066,7 +3066,7 @@ async def handle_payment_callback(update, context):
             await query.edit_message_text(f"❌ 订单不存在: {payment_id}")
             return
 
-        # 生成激活码
+        # 生成激活码 + 自动激活该用户
         db = load_users()
         plan_key = payment.get('detected_plan') or 'yearly'
         product = payment.get('detected_product') or 'both'
@@ -3079,33 +3079,101 @@ async def handle_payment_callback(update, context):
 
         product_label = {'king': '🟡 BotKing现货', '20x': '🟢 Bot20x合约', 'both': '🟡🟢 现货+合约通票'}[product]
 
-        await query.edit_message_text(
-            f"✅ 一键通过完成\n\n"
-            f"订单号: {payment_id}\n"
-            f"套餐: {p['emoji']} {p['label']}\n"
-            f"产品: {product_label}\n"
-            f"激活码: {code}\n\n"
-            f"已自动私信客户"
-        )
+        # 自动激活该用户 (不需客户手动/activate)
+        user_id = payment['user_id']
+        activate_ok, activate_msg = activate_code(db, user_id, code)
 
-        # 自动私信客户
+        if activate_ok:
+            # 激活成功
+            await query.edit_message_text(
+                f"✅ 一键通过 + 自动激活成功\n\n"
+                f"订单号: {payment_id}\n"
+                f"套餐: {p['emoji']} {p['label']}\n"
+                f"产品: {product_label}\n"
+                f"激活码: {code}\n\n"
+                f"👤 客户 {user_id} 已自动激活\n"
+                f"📲 私信客户 + 返利已自动处理"
+            )
+        else:
+            await query.edit_message_text(
+                f"⚠️ 订单通过但激活失败\n\n"
+                f"订单号: {payment_id}\n"
+                f"激活码: {code}\n"
+                f"原因: {activate_msg}\n\n"
+                f"需要客户手动 /activate"
+            )
+
+        # 自动私信客户 (告知已激活+下一步)
         try:
-            await context.bot.send_message(
-                chat_id=int(payment['user_id']),
-                text=(
-                    f"🎉 订阅已激活！\n\n"
+            customer_msg = (
+                f"🎉 订阅已激活！\n\n"
+                f"套餐: {p['emoji']} {p['label']}\n"
+                f"产品: {product_label}\n"
+                f"金额: ${payment.get('amount', 0)} USDT\n"
+                f"有效期: {p['days']}天\n\n"
+                f"📋 下一步:\n"
+                f"1. /bindapi 绑定你的Binance API\n"
+                f"2. /kbalance 查看账户\n"
+                f"3. /start_bot 启动机器人\n\n"
+                f"💡 有问题联系 @okbobox"
+            )
+            if activate_ok:
+                customer_msg = (
+                    f"🎉 订阅已自动激活！\n\n"
                     f"套餐: {p['emoji']} {p['label']}\n"
                     f"产品: {product_label}\n"
-                    f"激活码: {code}\n\n"
+                    f"金额: ${payment.get('amount', 0)} USDT\n"
+                    f"有效期: {p['days']}天\n\n"
                     f"📋 下一步:\n"
-                    f"1. /activate {code}\n"
-                    f"2. /bindapi 绑定你的Binance API\n"
-                    f"3. /kbalance 查看账户\n\n"
+                    f"1. /bindapi 绑定你的Binance API\n"
+                    f"2. /kbalance 查看账户\n"
+                    f"3. /start_bot 启动机器人\n\n"
                     f"💡 有问题联系 @okbobox"
                 )
+            await context.bot.send_message(
+                chat_id=int(user_id),
+                text=customer_msg,
             )
         except Exception as e:
-            log(f"发送激活码给客户失败: {e}")
+            log(f"发送激活通知给客户失败: {e}")
+
+        # 自动返利 (如果客户有邀请人)
+        try:
+            inviter_id = db.get('invited_by', {}).get(str(user_id))
+            if inviter_id:
+                from botking_auth import get_user_level
+                if get_user_level(db, inviter_id) in ('admin', 'owner'):
+                    price = payment.get('amount', 0)
+                    reward = round(price * 0.1, 2)
+                    invites = db.setdefault('invites', {})
+                    inviter = invites.setdefault(inviter_id, {'count': 0, 'rewards': 0, 'codes': []})
+                    inviter['count'] += 1
+                    inviter['rewards'] = round(inviter['rewards'] + reward, 2)
+                    inviter['codes'].append({
+                        'code': code,
+                        'invitee': str(user_id),
+                        'amount': price,
+                        'reward': reward,
+                        'at': time.time(),
+                    })
+                    save_users(db)
+                    # 私信邀请人
+                    try:
+                        await context.bot.send_message(
+                            chat_id=int(inviter_id),
+                            text=(
+                                f"🎁 返利到账！\n\n"
+                                f"你邀请的用户 {user_id} 已订阅\n"
+                                f"价格: ${price}\n"
+                                f"返利: +${reward} USDT (10%)\n\n"
+                                f"累计: ${inviter['rewards']} USDT\n"
+                                f"💡 /invite 查看邀请详情"
+                            )
+                        )
+                    except Exception:
+                        pass
+        except Exception as e:
+            log(f"返利异常: {e}")
 
     elif data.startswith('pay_reject_'):
         payment_id = data.replace('pay_reject_', '')
