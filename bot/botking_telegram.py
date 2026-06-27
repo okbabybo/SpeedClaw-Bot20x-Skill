@@ -1425,7 +1425,10 @@ async def cmd_gencode(update, context):
     if not product:
         product = 'both'  # 默认通票 (老客户兼容)
 
-    p = SUBSCRIPTION_PLANS[plan]
+    p_base = SUBSCRIPTION_PLANS[plan]
+    # 产品价格表(通票加价)
+    product_price = PRODUCT_PRICES[product][plan]
+    p = {**p_base, 'price': product_price}
     code = generate_activation_code(db, duration_days=p['days'], plan=plan, product=product)
 
     product_label = {'king': '🟡 BotKing现货', '20x': '🟢 Bot20x合约', 'both': '🟡🟢 现货+合约通票'}[product]
