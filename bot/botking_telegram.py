@@ -1624,7 +1624,7 @@ async def cmd_withdraw(update, context):
     try:
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         keyboard = [
-            [InlineKeyboardButton(f"✅ 立即转账 ${rewards}", callback_data=f"pay_withdraw_{user.id}")],
+            [InlineKeyboardButton(f"💸 查看手动转账指南", callback_data=f"pay_withdraw_{user.id}")],
             [InlineKeyboardButton("❌ 拒绝", callback_data=f"reject_withdraw_{user.id}")],
         ]
         await context.bot.send_message(
@@ -1635,8 +1635,8 @@ async def cmd_withdraw(update, context):
                 f"金额: ${rewards} USDT\n"
                 f"邀请数: {my_invites.get('count', 0)} 人\n"
                 f"提现地址: `{wallet}`\n\n"
-                f"⚠️ 点击下方按钮 → BSC转账 → 报交易哈希\n"
-                f"⚠️ 提现限额: \$50起, 单笔不超该用户累计"
+                f"📤 点'查看手动转账指南' → 老板手动BSC转账 → 发tx_hash\n"
+                f"⚠️ 提现限额: \$50起"
             ),
             parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup(keyboard),
@@ -1744,14 +1744,14 @@ async def cmd_mywallet(update, context):
 
 
 async def cmd_pay_withdraw(update, context):
-    """Owner一键转账USDT给客户的提现地址"""
+    """Owner手动提现: 老板转账后点按钮记录交易哈希"""
     query = update.callback_query if hasattr(update, 'callback_query') and update.callback_query else None
     if query:
         await query.answer()
         user_id = query.data.replace('pay_withdraw_', '')
     else:
         if not context.args:
-            await update.message.reply_text("用法: /pay_withdraw <user_id>")
+            await update.message.reply_text("用法: /pay_withdraw <user_id> <tx_hash>")
             return
         user_id = context.args[0]
 
@@ -1776,11 +1776,39 @@ async def cmd_pay_withdraw(update, context):
     amount = withdraw['amount']
     wallet = withdraw['wallet']
 
-    # 调用BSC转账
-    try:
-        sys.path.insert(0, '/root/.openclaw/workspace/speedClaw-Bot20x-Skill')
-        from payment.auto_activate import send_usdt_from_owner, BSC_RPC_URL, OWNER_WALLET
-        tx_hash = send_usdt_from_owner(wallet, amount)
+    # 手动模式: 老板转账后发送 /pay_withdraw <user_id> <tx_hash> 记录交易
+    # callback按钮场景: 提示老板手动转账
+    if query and not context.args:
+        # 详细提示
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        keyboard = [
+            [InlineKeyboardButton("✅ 转账完成,发送交易哈希", callback_data=f"send_tx_{user_id}")],
+            [InlineKeyboardButton("❌ 拒绝提现", callback_data=f"reject_withdraw_{user_id}")],
+        ]
+        await query.edit_message_text(
+            f"💸 **手动提现转账指南**\n\n"
+            f"申请人: {user_id}\n"
+            f"金额: **${amount} USDT**\n"
+            f"提现地址: `{wallet}`\n"
+            f"网络: BSC (BEP20)\n\n"
+            f"📋 **手动转账步骤**:\n"
+            f"1. 从你的BSC钱包转账 ${amount} USDT\n"
+            f"2. 转到上面地址 (务必BSC网络)\n"
+            f"3. 复制交易哈希 (tx hash)\n"
+            f"4. 发送: `/pay_withdraw {user_id} <tx_hash>`\n"
+            f"5. 系统自动通知客户并记录奖励\n\n"
+            f"💡 完成后点下方'转账完成,发送交易哈希'",
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+        return
+
+    # 已有tx_hash参数: 记录交易
+    if context.args and len(context.args) >= 2:
+        tx_hash = context.args[1]
+        if not (tx_hash.startswith('0x') and len(tx_hash) == 66):
+            await update.message.reply_text(f"❌ tx_hash格式错误: 应为0x+64位字符")
+            return
 
         # 标记已转账
         withdraw['status'] = 'paid'
@@ -1801,17 +1829,14 @@ async def cmd_pay_withdraw(update, context):
         save_users(db)
 
         success_msg = (
-            f"✅ 提现已转账\n\n"
+            f"✅ 提现已记录\n\n"
             f"用户: {user_id}\n"
             f"金额: ${amount} USDT\n"
             f"地址: `{wallet}`\n"
             f"交易: `{tx_hash}`\n\n"
             f"🔗 https://bscscan.com/tx/{tx_hash}"
         )
-        if query:
-            await query.edit_message_text(success_msg, parse_mode='Markdown')
-        else:
-            await update.message.reply_text(success_msg, parse_mode='Markdown')
+        await update.message.reply_text(success_msg, parse_mode='Markdown')
 
         # 通知客户
         try:
@@ -1824,19 +1849,31 @@ async def cmd_pay_withdraw(update, context):
                     f"地址: `{wallet}`\n"
                     f"交易: `{tx_hash}`\n\n"
                     f"🔗 https://bscscan.com/tx/{tx_hash}\n\n"
-                    f"请在钱包查收 (BSC USDT)"
+                    f"请在钱包查收 (BSC USDT)\n\n"
+                    f"💡 如未到账,联系 @okbobox"
                 ),
                 parse_mode='Markdown',
             )
         except Exception as e:
             log(f"通知客户提现成功失败: {e}")
+        return
 
-    except Exception as e:
-        err_msg = f"❌ 转账失败: {e}"
-        if query:
-            await query.edit_message_text(err_msg)
-        else:
-            await update.message.reply_text(err_msg)
+
+async def cmd_send_tx(update, context):
+    """老板点'转账完成'按钮后引导输入tx_hash"""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.data.replace('send_tx_', '')
+
+    await query.edit_message_text(
+        f"📤 **发送交易哈希**\n\n"
+        f"用户: {user_id}\n\n"
+        f"回复命令:\n"
+        f"`/pay_withdraw {user_id} <你的tx_hash>`\n\n"
+        f"示例: `/pay_withdraw {user_id} 0x1234abcd...`\n\n"
+        f"💡 tx_hash在BSCScan转账记录可查",
+        parse_mode='Markdown',
+    )
 
 
 
@@ -3052,6 +3089,7 @@ def main():
     app_tg.add_handler(CommandHandler("mywallet", cmd_mywallet))
     app_tg.add_handler(CommandHandler("pay_withdraw", cmd_pay_withdraw))
     app_tg.add_handler(CallbackQueryHandler(handle_payment_callback, pattern=r'^withdraw_'))
+    app_tg.add_handler(CallbackQueryHandler(handle_payment_callback, pattern=r'^send_tx_'))
     app_tg.add_handler(CommandHandler("switch_confirm", cmd_switch_confirm))
 
     # unbindapi 确认按钮
