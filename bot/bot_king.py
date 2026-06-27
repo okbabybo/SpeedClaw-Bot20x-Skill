@@ -30,7 +30,7 @@ LOG_FILE  = cfg.get('log_file', '/root/.openclaw/workspace/bot_king.log')
 STATE_DIR = cfg.get('state_dir', '/root/.openclaw/workspace/')
 STATE_FILE = STATE_DIR + "bot_king_state.json"
 
-COINS = cfg.get('coins', ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'AVAXUSDT', 'XRPUSDT', 'TONUSDT'])
+COINS = cfg.get('coins', ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'AVAXUSDT', 'XRPUSDT', 'SUIUSDT', 'TONUSDT'])
 
 # ==================== BotKing v1.1 核心参数 ====================
 
@@ -526,7 +526,7 @@ class GridEngine:
                 break
 
     def _round_qty(self, qty):
-        rules = {'BTCUSDT':4,'ETHUSDT':4,'BNBUSDT':2,'SOLUSDT':1,'AVAXUSDT':2,'XRPUSDT':1,'TONUSDT':1}
+        rules = {'BTCUSDT':4,'ETHUSDT':4,'BNBUSDT':2,'SOLUSDT':1,'AVAXUSDT':2,'XRPUSDT':1,'SUIUSDT':1,'TONUSDT':1}
         d = rules.get(self.symbol, 4)
         return math.floor(qty * 10**d) / 10**d
 

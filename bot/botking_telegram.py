@@ -248,7 +248,7 @@ def fetch_bot20x_full_realtime(api_key=None, api_secret=None):
 
 def fetch_botking_full_realtime():
     """BotKing实时查询 (调Binance现货API)
-    返回BotKing7币种+总USDT估值
+    返回BotKing8币种+总USDT估值
     返回 (data, err)
     """
     try:
@@ -274,8 +274,8 @@ def fetch_botking_full_realtime():
             if free + locked > 0:
                 balances[b['asset']] = {'free': free, 'locked': locked, 'total': free + locked}
 
-        # 2. BotKing 7币种当前价格
-        KING_SYMBOLS = ['BTC', 'ETH', 'BNB', 'SOL', 'AVAX', 'XRP', 'TON']
+        # 2. BotKing 8币种当前价格
+        KING_SYMBOLS = ['BTC', 'ETH', 'BNB', 'SOL', 'AVAX', 'XRP', 'SUI', 'TON']
         prices = {}
         for sym in KING_SYMBOLS:
             try:
@@ -651,7 +651,7 @@ PRODUCTS = {
         "emoji": "🟡",
         "short": "BotKing",
         "desc": [
-            "   • 7个币种 BTC/ETH/BNB/SOL/AVAX/XRP/TON",
+            "   • 8个币种 BTC/ETH/BNB/SOL/AVAX/XRP/SUI/TON",
             "   • 7种市场模式自动识别",
             "   • 9层风控保护",
             "   • Phase2 复利滚仓",
@@ -726,7 +726,7 @@ def render_subscribe_message(product="all"):
         price_map = PRODUCT_PRICES[pid]
         if pid == "both":
             lines.append(f"🟡🟢 **现货+合约 通票** (同时控制2个机器人)")
-            lines.append("   • BotKing现货 7币种网格 + Bot20x合约 BTC/ETH")
+            lines.append("   • BotKing现货 8币种网格 + Bot20x合约 BTC/ETH")
             lines.append("   • 适合两个产品都要的客户，加价40%比单买2个产品优惠")
         else:
             prod = PRODUCTS[pid]
@@ -835,7 +835,7 @@ async def cmd_plan_detail(update, context, intent):
 ═══════════════════════
 ✨ 包含内容:
    • BotKing 现货机器人 完整功能
-   • 7个币种 (BTC/ETH/BNB/SOL/AVAX/XRP/TON)
+   • 8个币种 (BTC/ETH/BNB/SOL/AVAX/XRP/SUI/TON)
    • 7种市场模式自动识别
    • 9层风控保护
    • Phase2 复利滚仓
@@ -2251,7 +2251,7 @@ async def cmd_invite_bind(update, context):
         f"✅ 用户 `{target_id}` 已授权 {duration} 天"
     )
 async def cmd_kbalance_king(update, context):
-    """BotKing 7币种现货余额 (调Binance现货API)"""
+    """BotKing 8币种现货余额 (调Binance现货API)"""
     await update.message.reply_text("🔄 查询Binance现货API...")
     data, err = fetch_botking_full_realtime()
     if err:
@@ -2267,12 +2267,12 @@ async def cmd_kbalance_king(update, context):
     msg = f"💰 BotKing 现货账户 (实时 Binance API)\n\n"
 
     if king_assets:
-        msg += "🔲 BotKing 7币种持仓:\n"
+        msg += "🔲 BotKing 8币种持仓:\n"
         for sym, info in king_assets.items():
             msg += f"  • {sym}: {info['qty']:.6f} @ ${info['price']:,.2f} = ${info['usdt_value']:.2f}\n"
         msg += f"\n  💵 BotKing 总额: ${king_total:.2f}\n\n"
     else:
-        msg += "🔲 BotKing 7币种: 无持仓\n\n"
+        msg += "🔲 BotKing 8币种: 无持仓\n\n"
 
     if stable > 0:
         msg += f"💵 稳定币余额: ${stable:.2f}\n"
@@ -3046,7 +3046,7 @@ async def handle_payment_callback(update, context):
         await query.edit_message_text(
             f"✅ 第1步已选: {p['emoji']} **{p['label']}** ${p['price']} USDT\n\n"
             f"📋 **第2步: 请选择产品**\n\n"
-            f"🟡 BotKing现货 = 7币种网格交易\n"
+            f"🟡 BotKing现货 = 8币种网格交易\n"
             f"🟢 Bot20x合约 = BTC/ETH永续合约20倍杠杆\n"
             f"🟡🟢 通票 = 现货+合约 (适合两个都要的人)",
             reply_markup=InlineKeyboardMarkup(keyboard2),

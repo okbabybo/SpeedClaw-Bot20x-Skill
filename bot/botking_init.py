@@ -69,13 +69,13 @@ def get_api_keys():
 def choose_coins():
     print("\n💰 选择交易币种 (多选用逗号分隔, 直接回车用默认):")
     print("  [1] BTC ETH (推荐新手, 2币种)")
-    print("  [2] BTC ETH BNB SOL AVAX XRP (6币种)")
-    print("  [3] BTC ETH BNB SOL AVAX XRP TON (7币种, 含TON)")
+    print("  [2] BTC ETH BNB SOL AVAX XRP (6币种, 不含SUI/TON)")
+    print("  [3] BTC ETH BNB SOL AVAX XRP SUI TON (8币种, 含SUI+TON)")
     choice = input("  选择 [1/2/3]: ").strip() or "1"
     coins_map = {
         "1": ["BTCUSDT", "ETHUSDT"],
         "2": ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "AVAXUSDT", "XRPUSDT"],
-        "3": ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "AVAXUSDT", "XRPUSDT", "TONUSDT"],
+        "3": ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "AVAXUSDT", "XRPUSDT", "SUIUSDT", "TONUSDT"],
     }
     return coins_map.get(choice, coins_map["1"])
 
