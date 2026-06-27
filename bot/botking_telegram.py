@@ -1785,19 +1785,18 @@ async def cmd_pay_withdraw(update, context):
             [InlineKeyboardButton("❌ 拒绝提现", callback_data=f"reject_withdraw_{user_id}")],
         ]
         await query.edit_message_text(
-            f"💸 **手动提现转账指南**\n\n"
+            f"💸 手动提现转账指南\n\n"
             f"申请人: {user_id}\n"
-            f"金额: **${amount} USDT**\n"
-            f"提现地址: `{wallet}`\n"
+            f"金额: ${amount} USDT\n"
+            f"提现地址:\n{wallet}\n\n"
             f"网络: BSC (BEP20)\n\n"
-            f"📋 **手动转账步骤**:\n"
+            f"📋 手动转账步骤:\n"
             f"1. 从你的BSC钱包转账 ${amount} USDT\n"
             f"2. 转到上面地址 (务必BSC网络)\n"
             f"3. 复制交易哈希 (tx hash)\n"
-            f"4. 发送: `/pay_withdraw {user_id} <tx_hash>`\n"
+            f"4. 发送命令: /pay_withdraw {user_id} <tx_hash>\n"
             f"5. 系统自动通知客户并记录奖励\n\n"
-            f"💡 完成后点下方'转账完成,发送交易哈希'",
-            parse_mode='Markdown',
+            f"完成后点下方'转账完成,发送交易哈希'按钮",
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
         return
@@ -1865,13 +1864,12 @@ async def cmd_send_tx(update, context):
     user_id = query.data.replace('send_tx_', '')
 
     await query.edit_message_text(
-        f"📤 **发送交易哈希**\n\n"
+        f"📤 发送交易哈希\n\n"
         f"用户: {user_id}\n\n"
         f"回复命令:\n"
-        f"`/pay_withdraw {user_id} <你的tx_hash>`\n\n"
-        f"示例: `/pay_withdraw {user_id} 0x1234abcd...`\n\n"
+        f"/pay_withdraw {user_id} <你的tx_hash>\n\n"
+        f"示例: /pay_withdraw {user_id} 0x1234abcd...\n\n"
         f"💡 tx_hash在BSCScan转账记录可查",
-        parse_mode='Markdown',
     )
 
 
@@ -3088,7 +3086,8 @@ def main():
     app_tg.add_handler(CommandHandler("mywallet", cmd_mywallet))
     app_tg.add_handler(CommandHandler("pay_withdraw", cmd_pay_withdraw))
     app_tg.add_handler(CallbackQueryHandler(handle_payment_callback, pattern=r'^withdraw_'))
-    app_tg.add_handler(CallbackQueryHandler(handle_payment_callback, pattern=r'^send_tx_'))
+    app_tg.add_handler(CallbackQueryHandler(cmd_pay_withdraw, pattern=r'^pay_withdraw_'))
+    app_tg.add_handler(CallbackQueryHandler(cmd_send_tx, pattern=r'^send_tx_'))
     app_tg.add_handler(CommandHandler("switch_confirm", cmd_switch_confirm))
 
     # unbindapi 确认按钮
