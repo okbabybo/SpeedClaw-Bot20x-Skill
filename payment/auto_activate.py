@@ -376,6 +376,126 @@ def scan_block(w3, block_number, owner_address):
         return []
 
 
+def verify_payment_tx(tx_hash, expected_amount=None):
+    """验证老板地址收到的USDT交易 (方案B3用)
+    Args:
+        tx_hash: 0x+64 hex
+        expected_amount: 期望金额 (USDT), 验证金额匹配 (tolerance 0.01)
+    Returns:
+        (ok: bool, result: dict or str)
+        ok=True时 result含: amount_usdt, plan_info, block_number
+        ok=False时 result是错误原因
+    """
+    try:
+        w3 = get_web3()
+
+        # 获取交易回执
+        tx_hash_clean = tx_hash.strip()
+        if not tx_hash_clean.startswith('0x'):
+            tx_hash_clean = '0x' + tx_hash_clean
+
+        try:
+            receipt = w3.eth.get_transaction_receipt(tx_hash_clean)
+        except Exception as e:
+            return False, f"交易不存在或未上链: {e}"
+
+        if receipt.status != 1:
+            return False, "交易失败 (status=0)"
+
+        # 获取交易详情
+        tx = w3.eth.get_transaction(tx_hash_clean)
+        if not tx:
+            return False, "交易不存在"
+
+        # 必须是USDT合约
+        if tx.to.lower() != USDT_BSC_CONTRACT.lower():
+            return False, f"不是USDT合约交易 (to={tx.to})"
+
+        # 必须是transfer调用 (selector 0xa9059cbb)
+        input_data = tx.input
+        if not input_data.lower().startswith('0xa9059cbb'):
+            return False, "不是USDT transfer调用"
+
+        # 解析 to address
+        to_in_tx = '0x' + input_data[34:74]
+        if to_in_tx.lower() != OWNER_WALLET.lower():
+            return False, f"收款地址不匹配 (收到地址: {to_in_tx})"
+
+        # 解析 amount
+        amount_hex = input_data[74:138]
+        amount_int = int(amount_hex, 16)
+        amount_usdt = amount_int / 10**6
+
+        if expected_amount is not None:
+            if abs(amount_usdt - float(expected_amount)) > 0.01:
+                return False, f"金额不匹配 (期望${expected_amount}, 实际${amount_usdt})"
+
+        # 推断套餐
+        plan_info = AMOUNT_TO_PLAN.get(int(amount_usdt))
+        if not plan_info:
+            # 尝试近似匹配 (手续费/金额误差)
+            for k, v in AMOUNT_TO_PLAN.items():
+                if abs(amount_usdt - k) < 0.5:
+                    plan_info = v
+                    break
+
+        return True, {
+            'amount_usdt': amount_usdt,
+            'plan_info': plan_info or {},
+            'block_number': receipt.blockNumber,
+            'from': tx['from'],
+            'to': to_in_tx,
+        }
+    except Exception as e:
+        log.error(f"verify_payment_tx fail: {e}")
+        return False, f"验证异常: {e}"
+
+
+def find_recent_incoming_tx(amount_usdt, minutes=10):
+    """查询老板地址最近N分钟内是否有指定金额的USDT入账 (方案B3用)
+
+    Args:
+        amount_usdt: 金额 (USDT, e.g. 599.0)
+        minutes: 查询最近几分钟 (默认10)
+
+    Returns:
+        list of dict: [{'tx_hash': '0x...', 'from': '0x...', 'amount': 599.0, 'block': 12345, 'timestamp': 1234567890}]
+        找不到返回空list
+    """
+    try:
+        w3 = get_web3()
+        latest = w3.eth.block_number
+        # BSC出块约3秒, N分钟 = N*20块
+        blocks_back = minutes * 20
+        start = max(latest - blocks_back, 0)
+
+        owner_checksum = Web3.to_checksum_address(OWNER_WALLET)
+        target_amount = float(amount_usdt)
+        tolerance = 0.01  # 0.01 USDT tolerance
+
+        results = []
+        for bn in range(start + 1, latest + 1):
+            matched = scan_block(w3, bn, owner_checksum)
+            for tx_info in matched:
+                if abs(tx_info['amount'] - target_amount) < tolerance:
+                    # 获取区块时间戳
+                    try:
+                        block = w3.eth.get_block(bn)
+                        ts = block.timestamp
+                    except:
+                        ts = int(time.time())
+                    results.append({
+                        'tx_hash': tx_info['tx_hash'],
+                        'amount': tx_info['amount'],
+                        'block': bn,
+                        'timestamp': ts,
+                    })
+        return results
+    except Exception as e:
+        log.error(f"find_recent_incoming_tx fail: {e}")
+        return []
+
+
 def send_usdt_from_owner(to_address, amount_usdt):
     """从Owner钱包发送USDT给指定地址
 

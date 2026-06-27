@@ -328,6 +328,12 @@ ID：`{user.id}`
 
 💳 支付网络: BSC (BEP20)
 💳 USDT 地址: `0x344FfCe2f7B8f580D4e054F7213cb231CD15c3cd`
+
+══════ ✅ 全自动验证流程 ══════
+1. 转USDT到上面地址 (任何金额: 59/99/399/599/1299/1999)
+2. 复制交易哈希 (tx_hash, 从钱包/Binance查)
+3. 发: /paid <tx_hash> - 1秒验证
+4. 老板一键通过 → 自动激活 + 私信激活码
 📧 客服: @okbobox
 
 💡 也可直接输入:
@@ -1075,6 +1081,184 @@ async def cmd_renew(update, context):
 
 2. 转账后发支付截图 (备注: '续费+{plan_label}'), Owner手动发码
 """
+
+
+async def cmd_paid(update, context):
+    """客户付款后验证 (方案B3: 老板一键激活)
+    用法:
+      /paid <金额>           - 扫链查最近5分钟匹配入账
+      /paid <金额> <tx_hash> - 验证指定tx_hash (推荐)
+      /paid <tx_hash>        - 自动从tx反推金额
+
+    示例:
+      /paid 599
+      /paid 599 0x123abc...
+      /paid 0x123abc...
+    """
+    import re
+    user = update.effective_user
+    if not context.args:
+        await update.message.reply_text(
+            "💸 付款验证\n\n"
+            "用法:\n"
+            "/paid <金额> - 例如 /paid 599\n"
+            "/paid <金额> <tx_hash> - 例如 /paid 599 0xabc...\n"
+            "/paid <tx_hash> - 例如 /paid 0xabc...\n\n"
+            "💡 推荐带tx_hash验证, 精确快速\n"
+            "💡 金额: 59/99/399/599/1299/1999"
+        )
+        return
+
+    # 解析参数
+    args = context.args
+    amount = None
+    tx_hash = None
+
+    for a in args:
+        a = a.strip()
+        if re.match(r'^0x[a-fA-F0-9]{64}$', a):
+            tx_hash = a
+        else:
+            try:
+                amount = float(a)
+            except ValueError:
+                pass
+
+    if amount is None and tx_hash is None:
+        await update.message.reply_text("❌ 参数错误, 格式: /paid <金额> 或 /paid <tx_hash> 或 /paid <金额> <tx_hash>")
+        return
+
+    db = load_users()
+    pending = load_pending_payments()
+    payment_id = f"{user.id}_{int(time.time())}"
+
+    # 情况1: 有tx_hash, 直接验证
+    if tx_hash:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent.parent / 'payment'))
+            from auto_activate import verify_payment_tx, OWNER_WALLET
+
+            await update.message.reply_text(
+                f"⏳ 验证交易 {tx_hash[:16]}...\n\n"
+                f"正在查询BSC链上状态..."
+            )
+
+            ok, result = verify_payment_tx(tx_hash, expected_amount=amount)
+
+            if not ok:
+                await update.message.reply_text(
+                    f"❌ 验证失败\n\n"
+                    f"原因: {result}\n\n"
+                    f"💡 请检查:\n"
+                    f"  • tx_hash是否完整正确\n"
+                    f"  • 金额是否与转账一致\n"
+                    f"  • 收款地址是否为 {OWNER_WALLET[:10]}..."
+                )
+                return
+
+            # 验证通过: 创建pending订单等老板一键通过
+            actual_amount = result.get('amount_usdt', amount or 0)
+            plan_info = result.get('plan_info', {})
+
+            pending[payment_id] = {
+                'payment_id': payment_id,
+                'user_id': str(user.id),
+                'username': user.username or '',
+                'first_name': user.first_name or '',
+                'tx_hash': tx_hash,
+                'amount': actual_amount,
+                'detected_plan': plan_info.get('plan'),
+                'detected_product': plan_info.get('product'),
+                'detected_amount': actual_amount,
+                'status': 'onchain_verified',  # 链上已验证
+                'created_at': time.time(),
+                'verified_at': time.time(),
+            }
+            save_pending_payments(pending)
+
+            product_label = {'king': '🟡现货', '20x': '🟢合约', 'both': '🟡🟢通票'}.get(plan_info.get('product'), '?')
+
+            await update.message.reply_text(
+                f"✅ 链上验证通过!\n\n"
+                f"订单号: {payment_id}\n"
+                f"金额: ${actual_amount} USDT\n"
+                f"套餐: {plan_info.get('label', '?')}\n"
+                f"产品: {product_label}\n"
+                f"tx: {tx_hash[:16]}...\n\n"
+                f"⏳ 等待Owner一键确认 (≤5分钟)\n"
+                f"💡 /myorders 查订单状态"
+            )
+
+            # 通知Owner 一键通过
+            keyboard = [
+                [InlineKeyboardButton(f"✅ 一键通过 ({plan_info.get('label', '?')})", callback_data=f"pay_oneclick_{payment_id}")],
+                [InlineKeyboardButton("❌ 拒绝", callback_data=f"pay_reject_{payment_id}")],
+            ]
+            await context.bot.send_message(
+                chat_id=OWNER_TELEGRAM_ID,
+                text=(
+                    f"💰 **付款验证请求**\n\n"
+                    f"客户: {user.id} (@{user.username or '匿名'})\n"
+                    f"金额: ${actual_amount} USDT\n"
+                    f"套餐: {plan_info.get('label', '?')}\n"
+                    f"产品: {product_label}\n"
+                    f"订单号: {payment_id}\n\n"
+                    f"🔗 链上交易: https://bscscan.com/tx/{tx_hash}\n\n"
+                    f"✅ 链上已验证, 点上方按钮一键通过"
+                ),
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup(keyboard),
+            )
+            return
+        except ImportError as e:
+            await update.message.reply_text(f"❌ 系统错误: auto_activate模块未加载 {e}")
+            return
+        except Exception as e:
+            log(f"cmd_paid verify fail: {e}")
+            await update.message.reply_text(f"❌ 验证异常: {e}")
+            return
+
+    # 情况2: 只有金额, 扫链查最近5分钟
+    if amount is not None:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent.parent / 'payment'))
+            from auto_activate import find_recent_incoming_tx, AMOUNT_TO_PLAN, OWNER_WALLET
+
+            await update.message.reply_text(
+                f"⏳ 正在查询最近5分钟老板地址的${amount} USDT入账...\n"
+                f"💡 推荐提供tx_hash加速: /paid {amount} <tx_hash>"
+            )
+
+            txs = find_recent_incoming_tx(amount, minutes=5)
+            if not txs:
+                await update.message.reply_text(
+                    f"❌ 最近5分钟老板地址未找到${amount} USDT入账\n\n"
+                    f"可能原因:\n"
+                    f"  • 转账还在确认中 (等30秒再试)\n"
+                    f"  • 金额不匹配 (检查小数点)\n"
+                    f"  • 转到了其他地址\n\n"
+                    f"💡 推荐提供tx_hash精确验证:\n"
+                    f"/paid {amount} 0x<你的tx_hash>"
+                )
+                return
+
+            # 找到匹配, 让客户确认
+            tx_info = txs[0]
+            plan_info = AMOUNT_TO_PLAN.get(int(amount), {})
+            product_label = {'king': '🟡现货', '20x': '🟢合约', 'both': '🟡🟢通票'}.get(plan_info.get('product'), '?')
+
+            await update.message.reply_text(
+                f"✅ 找到匹配入账\n\n"
+                f"金额: ${tx_info['amount']} USDT\n"
+                f"区块: {tx_info['block']}\n"
+                f"tx: {tx_info['tx_hash'][:16]}...\n"
+                f"推断套餐: {plan_info.get('label', '?')} ({product_label})\n\n"
+                f"⏳ 请用以下命令精确验证:\n"
+                f"/paid {amount} {tx_info['tx_hash']}"
+            )
+        except Exception as e:
+            log(f"cmd_paid scan fail: {e}")
+            await update.message.reply_text(f"❌ 查询异常: {e}")
 
 
 async def cmd_trial(update, context):
@@ -2873,6 +3057,56 @@ async def handle_payment_callback(update, context):
         except Exception as e:
             log(f"返利异常: {e}")
 
+    elif data.startswith('pay_oneclick_'):
+        # 方案B3: 老板一键通过 (链上已验证)
+        payment_id = data.replace('pay_oneclick_', '')
+        pending = load_pending_payments()
+        payment = pending.get(payment_id)
+        if not payment:
+            await query.edit_message_text(f"❌ 订单不存在: {payment_id}")
+            return
+
+        # 生成激活码
+        db = load_users()
+        plan_key = payment.get('detected_plan') or 'yearly'
+        product = payment.get('detected_product') or 'both'
+        p = SUBSCRIPTION_PLANS.get(plan_key, SUBSCRIPTION_PLANS['yearly'])
+        code = generate_activation_code(db, duration_days=p['days'], plan=plan_key, product=product)
+        payment['status'] = 'approved'
+        payment['code'] = code
+        payment['approved_at'] = time.time()
+        save_pending_payments(pending)
+
+        product_label = {'king': '🟡 BotKing现货', '20x': '🟢 Bot20x合约', 'both': '🟡🟢 现货+合约通票'}[product]
+
+        await query.edit_message_text(
+            f"✅ 一键通过完成\n\n"
+            f"订单号: {payment_id}\n"
+            f"套餐: {p['emoji']} {p['label']}\n"
+            f"产品: {product_label}\n"
+            f"激活码: {code}\n\n"
+            f"已自动私信客户"
+        )
+
+        # 自动私信客户
+        try:
+            await context.bot.send_message(
+                chat_id=int(payment['user_id']),
+                text=(
+                    f"🎉 订阅已激活！\n\n"
+                    f"套餐: {p['emoji']} {p['label']}\n"
+                    f"产品: {product_label}\n"
+                    f"激活码: {code}\n\n"
+                    f"📋 下一步:\n"
+                    f"1. /activate {code}\n"
+                    f"2. /bindapi 绑定你的Binance API\n"
+                    f"3. /kbalance 查看账户\n\n"
+                    f"💡 有问题联系 @okbobox"
+                )
+            )
+        except Exception as e:
+            log(f"发送激活码给客户失败: {e}")
+
     elif data.startswith('pay_reject_'):
         payment_id = data.replace('pay_reject_', '')
         pending = load_pending_payments()
@@ -2944,9 +3178,10 @@ API管理：
 订单与订阅：
 /subscribe     - 查看6档订阅方案 (现货/合约/通票)
 /trial         - 领取体验码 (7天现货, 每人限1次)
+/paid <tx_hash> - 付款后验证 (方案B3,老板一键通过)
 /activate <码> - 激活激活码
 /mysub         - 我的订阅状态 (含产品+到期)
-/myorders      - 查看我的订单状态 (半自动付款后查)
+/myorders      - 查看我的订单状态 (付款后查)
 /renew         - 一键续费 (自动生成套餐详情+地址)
 
 🎁 推广赚钱：
@@ -3077,6 +3312,7 @@ def main():
     app_tg.add_handler(CommandHandler("unbindapi", cmd_unbindapi))
     app_tg.add_handler(CommandHandler("myorders", cmd_myorders))
     app_tg.add_handler(CommandHandler("renew", cmd_renew))
+    app_tg.add_handler(CommandHandler("paid", cmd_paid))
     app_tg.add_handler(CommandHandler("trial", cmd_trial))
     app_tg.add_handler(CommandHandler("switch", cmd_switch))
     app_tg.add_handler(CommandHandler("history", cmd_history))
