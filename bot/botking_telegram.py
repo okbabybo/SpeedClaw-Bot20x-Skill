@@ -3126,6 +3126,8 @@ def main():
     app_tg.add_handler(CallbackQueryHandler(handle_payment_callback, pattern=r'^pay_'))
     # 设置钱包地址按钮
     app_tg.add_handler(CallbackQueryHandler(handle_payment_callback, pattern=r'^set_wallet_'))
+    # 提现拒绝/取消按钮
+    app_tg.add_handler(CallbackQueryHandler(handle_payment_callback, pattern=r'^(reject|cancel)_withdraw_'))
 
     log("✅ Telegram Bot已启动")
     log("📱 在Telegram搜索你的机器人用户名,发送 /start 开始")
