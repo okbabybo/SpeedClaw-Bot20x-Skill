@@ -1,7 +1,7 @@
 # BotKing Spot Skill
 
 > BotKing 现货机器人 — 币安现货 USDT 双引擎量化策略
-> **版本：v1.4 (2026-06-25)**| 币种：BTC, ETH, BNB, SOL, AVAX, XRP, TON
+> **版本：v1.4 (2026-06-25)**| 币种：BTC, ETH, BNB, SOL, AVAX, XRP, SUI, TON
 > 交易所：币安现货 USDT-M
 
 ---
