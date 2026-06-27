@@ -1630,15 +1630,14 @@ async def cmd_withdraw(update, context):
         await context.bot.send_message(
             chat_id=OWNER_TELEGRAM_ID,
             text=(
-                f"💰 **提现申请**\n\n"
+                f"💰 提现申请\n\n"
                 f"申请人: {user.id} (@{user.username or user.first_name or '匿名'})\n"
                 f"金额: ${rewards} USDT\n"
                 f"邀请数: {my_invites.get('count', 0)} 人\n"
-                f"提现地址: `{wallet}`\n\n"
+                f"提现地址:\n{wallet}\n\n"
                 f"📤 点'查看手动转账指南' → 老板手动BSC转账 → 发tx_hash\n"
-                f"⚠️ 提现限额: \$50起"
+                f"⚠️ 提现限额: $50起"
             ),
-            parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
     except Exception as e:
