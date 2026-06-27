@@ -211,7 +211,7 @@ def get_user_api(db, telegram_id):
     telegram_id = str(telegram_id)
     level = get_user_level(db, telegram_id)
     if level in ('owner', 'admin'):
-        admin = db['admins'].get(telegram_id, {})
+        admin = db.get('admins', {}).get(telegram_id, {})
         return admin.get('api_key'), admin.get('api_secret')
     return None, None
 
