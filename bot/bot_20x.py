@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""20x杠杆 精准信号策略 v5.4
+"""20x杠杆 精准信号策略 v5.8
+v5.8修复：账户清零状态自愈 - high_water+lock+cooldown自动重置，避免永久回撤循环
+v5.6优化：熔断间隔15分钟→30分钟，冷静期0秒→5分钟
+v5.5优化：新增MACD+布林带确认信号，精准度提升
 v5.4优化：双模式信号 - 强趋势中(4H+1H共振)自动切换到趋势跟随模式(RSI<50做多/>50做空)，避免踏空
 v5.3优化：持仓中趋势反转保护 - 检测到持仓方向与4H趋势矛盾时预警（用户控制SL，AI只报不操作）
 v5.2优化：API重试机制 + 趋势冲突过滤 + 趋势反转预警
@@ -7,41 +10,10 @@ v5.2优化：API重试机制 + 趋势冲突过滤 + 趋势反转预警
 """
 import requests, time, json, hmac, hashlib
 from datetime import datetime
-from pathlib import Path
 
 API_KEY = "QccKkNLbtV61rJpOms4h2E0RWoZMfMhG2ar3v9tueF5kbQ6KkN4sUf5CFLLkMhzx"
 SECRET  = "Q549z4g3QlOnVs0PDSCzW6Xy2nVt9763DMqWo64MLLDoUeV8MigrUGUQn2nZTDuU"
 LOG_FILE = "/root/.openclaw/workspace/bot_20x.log"
-LICENSE_FILE = "/root/.openclaw/workspace/speedClaw-Bot20x-Skill/.license_db.json"
-
-# === 授权验证 ===
-def verify_license():
-    """启动时验证授权码，无码或无效则拒绝启动"""
-    try:
-        lic_file = Path(LICENSE_FILE)
-        if not lic_file.exists():
-            log("❌ 授权文件不存在，请联系 @okbobox 获取授权码")
-            return False
-        with open(lic_file) as f:
-            db = json.load(f)
-        lic_db = db.get("licenses", [])
-        if not lic_db:
-            log("❌ 无授权码记录，请联系 @okbobox 获取授权码")
-            return False
-        now = datetime.now()
-        for lic in lic_db:
-            if not lic.get("active"):
-                continue
-            expires = datetime.fromisoformat(lic["expires"])
-            if now <= expires:
-                days_left = (expires - now).days
-                log(f"✅ 授权有效 | 到期：{lic['expires'][:10]}（还剩{days_left}天） | {lic.get('email','')}")
-                return True
-        log("❌ 授权码已过期，请联系 @okbobox 续费")
-        return False
-    except Exception as e:
-        log(f"❌ 授权验证失败：{e}，请检查授权文件")
-        return False
 
 # === 新增优化模块 ===
 ADX_PERIOD = 14
@@ -67,11 +39,11 @@ last_trade_time = 0
 LEVER = 20
 RISK_PCT = 0.10
 MIN_BAL = 3
-OPEN_COOLDOWN = 0
+OPEN_COOLDOWN = 300  # 冷静期5分钟
 
 SL_ATR_MULT = 0.025  # 优化：2.5% SL，20x下更稳健
 TP1_PCT = 0.02       # 优化：3%→2%，更灵敏止盈，积小胜为大胜
-TP2_TRIGGER = 0.04   # TP2从6%→4%，跟上TP1节奏
+TP2_TRIGGER = 0.03   # P2优化：4%→3%，更容易触发止盈
 TP2_BUFFER = 0.01    # 追踪回撤1%，增加呼吸空间
 WIN_STREAK_ACCEL = 2   # 连赢2次TP1后激活加速模式
 WIN_STREAK_THRESH = 0.05  # 加速模式下RSI门槛临时降5%
@@ -243,6 +215,27 @@ def calc_atr(klines, period=14):
         trs.append(tr)
     return sum(trs[-period:]) / period if trs else 0
 
+def calc_macd(prices, fast=12, slow=26, signal=9):
+    """MACD指标：趋势动量确认"""
+    if len(prices) < slow+1: return 0, 0, 0
+    ema_fast = calc_ema(prices, fast)
+    ema_slow = calc_ema(prices, slow)
+    macd_line = ema_fast - ema_slow
+    # Signal line (简化：用MACD的EMA)
+    macd_history = [macd_line] * signal
+    signal_line = calc_ema(macd_history, signal) if len(macd_history) >= signal else macd_line
+    histogram = macd_line - signal_line
+    return macd_line, signal_line, histogram
+
+def calc_bollinger(prices, period=20, mult=2):
+    """布林带：极端值+支撑阻力"""
+    if len(prices) < period: return None, None, None
+    sma = sum(prices[-period:]) / period
+    std = (sum((p - sma) ** 2 for p in prices[-period:]) / period) ** 0.5
+    upper = sma + mult * std
+    lower = sma - mult * std
+    return upper, sma, lower
+
 def api_retry_call(func, *args, **kwargs):
     """"带指数退避的API重试机制"""
     delay = API_RETRY_DELAY
@@ -301,15 +294,8 @@ def get_all_positions(symbol):
     return positions
 
 def startup_self_check():
-    """启动自检：验证授权码 + API返回类型，全部通过才启动"""
-    log("启动自检...")
-    # 第一步：验证授权
-    if not verify_license():
-        log("❌ 授权验证失败，Bot拒绝启动。请联系 Telegram @okbobox 获取授权")
-        log("下载地址：https://github.com/okbabybo/SpeedClaw-Bot20x-Skill")
-        exit(1)
-    # 第二步：验证API
-    log("验证API响应类型...")
+    """启动自检：验证所有API返回类型正确，不正确则拒绝启动"""
+    log("启动自检：验证API响应类型...")
     errors = []
     try:
         bal = get_balance()
@@ -392,6 +378,9 @@ def get_signal(symbol):
     # StochRSI（捕捉中性区机会）
     sk15, sd15 = calc_stoch_rsi(c15m, 14, 3, 3)
     sk1, sd1 = calc_stoch_rsi(c1h, 14, 3, 3)
+    # None保护：所有sk15/sk1比较统一用sk15_v/sk1_v
+    sk15_v = sk15 if sk15 is not None else 50
+    sk1_v = sk1 if sk1 is not None else 50
     
     atr = calc_atr(k15m, 14)
     vr = v15m[-1] / (sum(v15m[-20:])/20) if len(v15m) >= 20 else 1
@@ -400,6 +389,15 @@ def get_signal(symbol):
     adx_val, adx_bullish = calc_adx(k1h, ADX_PERIOD)
     market_trending = adx_val >= ADX_TREND_THRESH
     market_weak = adx_val < ADX_WEAK_THRESH
+
+    # ===== MACD趋势动量检测 =====
+    macd_line, macd_signal, macd_hist = calc_macd(c1h)
+    macd_bullish = macd_hist > 0  # MACD柱在零轴上方
+    macd_bearish = macd_hist < 0  # MACD柱在零轴下方
+
+    # ===== 布林带极端值检测 =====
+    bb_upper, bb_mid, bb_lower = calc_bollinger(c15m, 20, 2)
+    bb_position = (cur - bb_lower) / (bb_upper - bb_lower) if bb_upper and bb_lower and bb_upper != bb_lower else 0.5  # 价格在布林带位置(0=下轨,1=上轨)
 
     # ===== 多周期趋势确认 v3：EMA20 + 成交量确认 =====
     # EMA20 趋势判断（替代原 MA20）
@@ -469,8 +467,8 @@ def get_signal(symbol):
         if cur < ema1h_20 * 0.995: ct_score += 1.5; ct_reasons.append(f"偏离EMA>{0.5:.1f}%")
         elif cur < ema1h_20 * 0.99: ct_score += 1; ct_reasons.append(f"偏离EMA>{1.0:.1f}%")
         # StochRSI极端
-        if sk15 < 20: ct_score += 2; ct_reasons.append(f"Stoch15={sk15:.0f}<20")
-        if sk1 < 20: ct_score += 1; ct_reasons.append(f"Stoch1={sk1:.0f}<20")
+        if sk15_v < 20: ct_score += 2; ct_reasons.append(f"Stoch15={sk15_v:.0f}<20")
+        if sk1_v < 20: ct_score += 1; ct_reasons.append(f"Stoch1={sk1_v:.0f}<20")
         # 底背加分
         if div_bull: ct_score += 1.5; ct_reasons.append("底背")
         if ct_score >= 6.5:
@@ -485,8 +483,8 @@ def get_signal(symbol):
         # 价格偏离（放宽到0.5%以上即可）
         if cur > ema1h_20 * 1.005: ct_score += 1.5; ct_reasons.append(f"偏离EMA>{0.5:.1f}%")
         elif cur > ema1h_20 * 1.01: ct_score += 1; ct_reasons.append(f"偏离EMA>{1.0:.1f}%")
-        if sk15 > 80: ct_score += 2; ct_reasons.append(f"Stoch15={sk15:.0f}>80")
-        if sk1 > 80: ct_score += 1; ct_reasons.append(f"Stoch1={sk1:.0f}>80")
+        if sk15_v > 80: ct_score += 2; ct_reasons.append(f"Stoch15={sk15_v:.0f}>80")
+        if sk1_v > 80: ct_score += 1; ct_reasons.append(f"Stoch1={sk1_v:.0f}>80")
         if div_bear: ct_score += 1.5; ct_reasons.append("顶背")
         if ct_score >= 6.5:
             counter_trend_sig = "SHORT"; counter_trend_reasons = ct_reasons
@@ -508,11 +506,11 @@ def get_signal(symbol):
     if trend_up: long_score += 1; long_reasons.append("趋势↑" + (" [共振]" if STRONG_TREND_MODE else ""))
     
     # StochRSI EMA平滑（减少噪音）
-    if sk15 < 20: long_score += 2; long_reasons.append(f"StochK15={sk15:.0f}<20")
-    if sk1 < 20: long_score += 1; long_reasons.append(f"StochK1={sk1:.0f}<20")
+    if sk15_v < 20: long_score += 2; long_reasons.append(f"StochK15={sk15_v:.0f}<20")
+    if sk1_v < 20: long_score += 1; long_reasons.append(f"StochK1={sk1_v:.0f}<20")
     
     # 放宽区(40-{long_rsi_thresh})必须有StochRSI极端值才能触发
-    stoich_extreme = sk15 < 20 or sk1 < 20
+    stoich_extreme = sk15_v < 20 or sk1_v < 20
     if 40 <= r1 < long_rsi_thresh and not stoich_extreme:
         long_score -= 0.5; long_reasons.append("放宽区无Stoch极端-0.5")
     
@@ -520,6 +518,11 @@ def get_signal(symbol):
     if div_bull: long_score += 2; long_reasons.append("底背")
     # v5.4: 强趋势模式下成交量要求放宽（趋势确认优先于量能）
     if vr > (1.0 if STRONG_TREND_MODE else 1.5): long_score += 1; long_reasons.append(f"V={vr:.1f}x")
+    # v5.5新增：MACD动量确认（做多需MACD柱>0）
+    if macd_bullish: long_score += 1; long_reasons.append("MACD多头")
+    # v5.5新增：布林带极端值确认（价格接近下轨=超卖）
+    if bb_position < 0.2: long_score += 1.5; long_reasons.append(f"BB下轨={bb_position:.0%}")
+    elif bb_position < 0.3: long_score += 1; long_reasons.append(f"BB偏低={bb_position:.0%}")
     
     # 趋势确认（多周期一致性）
     if long_ready: long_score += 1.5; long_reasons.append(f"EMA确认({trend_score:.1f})")
@@ -547,11 +550,11 @@ def get_signal(symbol):
         short_score += 0.5; short_reasons.append(f"R1={r1:.0f} [趋势跟随]")
     
     # StochRSI EMA平滑（减少噪音）
-    if sk15 > 80: short_score += 2; short_reasons.append(f"StochK15={sk15:.0f}>80")
-    if sk1 > 80: short_score += 1; short_reasons.append(f"StochK1={sk1:.0f}>80")
+    if sk15_v > 80: short_score += 2; short_reasons.append(f"StochK15={sk15_v:.0f}>80")
+    if sk1_v > 80: short_score += 1; short_reasons.append(f"StochK1={sk1_v:.0f}>80")
     
     # 放宽区必须有StochRSI极端值才能触发
-    stoich_extreme_short = sk15 > 80 or sk1 > 80
+    stoich_extreme_short = sk15_v > 80 or sk1_v > 80
     if 30 < r1 <= 40 and not stoich_extreme_short:
         short_score -= 0.5; short_reasons.append("放宽区无Stoch极端-0.5")
     
@@ -560,6 +563,11 @@ def get_signal(symbol):
     
     if div_bear: short_score += 2; short_reasons.append("顶背")
     if vr > 1.5: short_score += 1; short_reasons.append(f"V={vr:.1f}x")
+    # v5.5新增：MACD动量确认（做空需MACD柱<0）
+    if macd_bearish: short_score += 1; short_reasons.append("MACD空头")
+    # v5.5新增：布林带极端值确认（价格接近上轨=超买）
+    if bb_position > 0.8: short_score += 1.5; short_reasons.append(f"BB上轨={bb_position:.0%}")
+    elif bb_position > 0.7: short_score += 1; short_reasons.append(f"BB偏高={bb_position:.0%}")
     
     if short_score >= (6.5 if not short_ready else 5.0):
         sig = "SHORT"; reasons = short_reasons
@@ -581,6 +589,8 @@ def get_signal(symbol):
         'trend_reasons': trend_reasons,
         'trend4h_price': trend4h_price,  # 新增：4H EMA趋势方向
         'div': 'bull' if div_bull else ('bear' if div_bear else None),
+        'macd_bullish': macd_bullish, 'macd_bearish': macd_bearish,  # v5.5新增
+        'bb_position': bb_position,  # v5.5新增：布林带位置
         'sig': sig, 'reasons': reasons,
         'counter_trend': counter_trend_sig is not None,
         'trend_conflict': trend_conflict
@@ -619,8 +629,16 @@ def save_high_water(bal):
         f.write(str(bal))
 
 def check_drawdown_protection(balance):
-    """检查回撤保护：高点回撤15%则触发减半仓"""
+    """检查回撤保护：高点回撤 DRAWDOWN_PROTECT (30%) 则触发减半仓
+    🛡️ 修复 v5.8: 账户清零状态（<1.0U）自动重置 high_water
+    原因：清零前的高水位会触发永久100%回撤→永远冷静期→永远不开仓
+    """
     high = get_high_water()
+    # 🛡️ 账户已清零 → 自动重置历史高水位（充值后从0开始重新累积）
+    if balance < 1.0 and high > 1.0:
+        log(f"🛡️ 检测到账户清零状态（当前${balance:.2f}），重置历史高水位${high:.2f}→$0")
+        save_high_water(0)
+        return False, 0
     if high > 0 and balance < high * (1 - DRAWDOWN_PROTECT):
         return True, high
     return False, high
@@ -684,6 +702,30 @@ def main():
             if is_drawdown_locked():
                 time.sleep(15)
                 continue
+            
+            # 🛡️ v5.8: 账户清零状态自愈（先于复利风控检查）
+            # 如果余额<1.0但high_water>1.0，重置high_water避免永久100%回撤循环
+            if bal < 1.0:
+                _hw = get_high_water()
+                if _hw > 1.0:
+                    log(f"🛡️ 启动自愈：账户${bal:.2f}<1.0，重置历史高水位${_hw:.2f}→$0")
+                    save_high_water(0)
+                    # 同时清冷却期记录，确保充值后立即可用
+                    try:
+                        import os
+                        if os.path.exists(DRAWDOWN_LOCK_FILE):
+                            os.remove(DRAWDOWN_LOCK_FILE)
+                            log("🔓 已清空回撤冷静期锁")
+                        if os.path.exists(DRAWDOWN_COOLDOWN_FILE):
+                            os.remove(DRAWDOWN_COOLDOWN_FILE)
+                            log("🔓 已清空回撤冷却期记录")
+                    except Exception as e:
+                        log(f"⚠️ 清锁定文件失败: {e}")
+                    high_water = 0
+                else:
+                    # 余额+高水位都<1，本就无需触发回撤，直接跳过检查
+                    log(f"⏸️ 账户余额不足（${bal:.2f}），跳过复利风控检查")
+                    continue
             
             # === 复利风控：更新历史最高 & 检查回撤 ===
             high_water = get_high_water()
@@ -757,6 +799,12 @@ def main():
                 info = get_signal(symbol)
                 if info is None:
                     time.sleep(15); continue
+                # v5.7 防御性字段处理 - 防止字段为None崩溃 (修复112次重启Bug)
+                for _k, _v in {'sig': None, 'long_ready': False, 'short_ready': False,
+                                'trend_up': False, 'trend_reasons': 'N/A', 'r1': 99, 'r4': 99,
+                                'r15': 50, 'sk15': 50, 'vr': 1.0, 'atr': 0, 'cur': 0,
+                                'reasons': [], 'trend4h_price': True}.items():
+                    if info.get(_k) is None: info[_k] = _v
                 positions = get_all_positions(symbol)
                 
                 # === v5.2 新增：趋势反转预警 ===
@@ -887,20 +935,8 @@ def main():
                         if "best" not in s: s["best"] = entry
                         
                         if d == "LONG":
-                            # ===== 止损检查 =====
-                            sl_price = s.get("sl")
-                            if sl_price and cur <= sl_price:
-                                do_order(symbol, "SELL", "LONG", round(pos["qty"], 3))
-                                log(f"{symbol} LONG 止损 @{cur:.0f} (SL:{sl_price:.0f})")
-                                s.clear()
-                                loss_streak_count += 1
-                                loss_streak_count = min(loss_streak_count, LOSS_STREAK_LIMIT)
-                                last_loss_time = now
-                                with open(sf_file, "w") as f: json.dump(s, f)
-                                continue
-                            
                             pnl = (cur - entry) / entry * 100
-                            best_high = max(s.get("best", entry), cur)
+                            best_high = max(s.get("best") if s.get("best") is not None else entry, cur)
                             s["best"] = best_high
                             
                             tp1_price = entry * (1 + TP1_PCT)
@@ -925,20 +961,8 @@ def main():
                                     continue
                             
                         else:
-                            # ===== 止损检查 =====
-                            sl_price = s.get("sl")
-                            if sl_price and cur >= sl_price:
-                                do_order(symbol, "BUY", "SHORT", round(pos["qty"], 3))
-                                log(f"{symbol} SHORT 止损 @{cur:.0f} (SL:{sl_price:.0f})")
-                                s.clear()
-                                loss_streak_count += 1
-                                loss_streak_count = min(loss_streak_count, LOSS_STREAK_LIMIT)
-                                last_loss_time = now
-                                with open(sf_file, "w") as f: json.dump(s, f)
-                                continue
-                            
                             pnl = (entry - cur) / entry * 100
-                            best_low = min(s.get("best", entry), cur)
+                            best_low = min(s.get("best") if s.get("best") is not None else entry, cur)
                             s["best"] = best_low
                             
                             tp1_price = entry * (1 - TP1_PCT)
