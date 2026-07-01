@@ -152,21 +152,43 @@ body {
 
 .contact-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
   margin-top: 20px;
+}
+@media (max-width: 768px) {
+  .contact-grid { grid-template-columns: 1fr 1fr; }
 }
 .contact-card {
   background: rgba(255,255,255,0.05);
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 12px;
-  padding: 20px;
+  padding: 20px 14px;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 110px;
 }
-.contact-icon { font-size: 28px; margin-bottom: 8px; }
-.contact-label { color: #9ca3af; font-size: 13px; margin-bottom: 4px; }
-.contact-value { color: #00d4aa; font-size: 16px; font-weight: 600; }
+.contact-icon { font-size: 26px; margin-bottom: 6px; }
+.contact-label { color: #9ca3af; font-size: 12px; margin-bottom: 4px; letter-spacing: 0.3px; }
+.contact-value { color: #00d4aa; font-size: 14px; font-weight: 600; word-break: break-all; line-height: 1.4; }
 .contact-value a { color: #00d4aa; text-decoration: none; }
+.contact-value a:hover { text-decoration: underline; }
+.copy-btn {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 4px 10px;
+  font-size: 11px;
+  background: rgba(0,212,170,0.15);
+  border: 1px solid rgba(0,212,170,0.3);
+  border-radius: 6px;
+  color: #00d4aa;
+  cursor: pointer;
+  user-select: none;
+}
+.copy-btn:hover { background: rgba(0,212,170,0.25); }
 
 .risk {
   background: rgba(239,68,68,0.1);
@@ -356,11 +378,25 @@ body {
       <div class="contact-icon">💬</div>
       <div class="contact-label">Telegram 机器人</div>
       <div class="contact-value"><a href="https://t.me/my_botking_V2_bot" target="_blank">@my_botking_V2_bot</a></div>
+      <span class="copy-btn" onclick="navigator.clipboard.writeText('@my_botking_V2_bot');this.textContent='✓ 已复制'">复制</span>
+    </div>
+    <div class="contact-card">
+      <div class="contact-icon">💎</div>
+      <div class="contact-label">USDT 收款地址 (BSC)</div>
+      <div class="contact-value">0x344F...3cd</div>
+      <span class="copy-btn" onclick="navigator.clipboard.writeText('0x344FfCe2f7B8f580D4e054F7213cb231CD15c3cd');this.textContent='✓ 已复制'">复制完整地址</span>
     </div>
     <div class="contact-card">
       <div class="contact-icon">📧</div>
       <div class="contact-label">Email</div>
       <div class="contact-value">speedclawx@gmail.com</div>
+      <span class="copy-btn" onclick="navigator.clipboard.writeText('speedclawx@gmail.com');this.textContent='✓ 已复制'">复制</span>
+    </div>
+    <div class="contact-card">
+      <div class="contact-icon">🐙</div>
+      <div class="contact-label">GitHub 开源</div>
+      <div class="contact-value"><a href="https://github.com/okbabybo/SpeedClaw-Bot20x-Skill" target="_blank">okbabybo/SpeedClaw</a></div>
+      <span class="copy-btn" onclick="navigator.clipboard.writeText('https://github.com/okbabybo/SpeedClaw-Bot20x-Skill');this.textContent='✓ 已复制'">复制链接</span>
     </div>
   </div>
 </div>
