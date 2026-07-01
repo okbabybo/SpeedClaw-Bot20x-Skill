@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SpeedClaw Bot20× - BTC+ETH 永续合约量化交易机器人</title>
-<meta name="description" content="Binance USDT-M永续合约量化交易机器人，专注BTC和ETH，20x杠杆，多周期EMA确认，StochRSI信号，趋势反转预警">
+<title>🦞 SpeedClaw BotKing + Bot20x | 现货+合约量化交易机器人</title>
+<meta name="description" content="现货网格8币种 + 合约20倍杠杆，BTC/ETH 永续。AI技术顾问，7天免费试用，9档订阅方案。">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -14,49 +14,97 @@ body {
   color: #e0e6ed;
   padding: 20px;
 }
-.container { max-width: 800px; margin: 0 auto; }
-.header {
-  text-align: center;
-  padding: 40px 0;
-}
+.container { max-width: 1000px; margin: 0 auto; }
+.header { text-align: center; padding: 40px 0 20px; }
 .header h1 { color: #00d4aa; font-size: 36px; margin-bottom: 12px; }
-.header .subtitle { color: #9ca3af; font-size: 16px; margin-bottom: 16px; }
+.header .subtitle { color: #9ca3af; font-size: 16px; margin-bottom: 8px; }
 .header .desc { color: #d1d5db; font-size: 14px; }
 
-.hero {
-  background: rgba(0,212,170,0.1);
+.bot-hero {
+  background: linear-gradient(135deg, rgba(0,212,170,0.15) 0%, rgba(255,200,55,0.10) 100%);
   border: 1px solid rgba(0,212,170,0.3);
   border-radius: 16px;
-  padding: 32px;
+  padding: 24px 32px;
   text-align: center;
-  margin: 30px 0;
+  margin: 20px 0;
 }
-.hero h2 { color: #00d4aa; font-size: 24px; margin-bottom: 16px; }
-.hero p { color: #d1d5db; font-size: 15px; line-height: 1.7; }
+.bot-hero h2 { color: #00d4aa; font-size: 24px; margin-bottom: 12px; }
+.bot-hero p { color: #d1d5db; font-size: 15px; line-height: 1.7; margin: 6px 0; }
+.tg-link {
+  display: inline-block;
+  background: linear-gradient(90deg, #00d4aa, #0088cc);
+  color: white;
+  padding: 14px 36px;
+  border-radius: 12px;
+  font-size: 18px;
+  font-weight: 700;
+  text-decoration: none;
+  margin-top: 16px;
+  box-shadow: 0 4px 16px rgba(0,212,170,0.3);
+}
+.tg-link:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,212,170,0.5); }
 
-.coins {
+.products {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
-  margin: 20px 0;
+  margin: 24px 0;
 }
-.coin {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 12px;
-  padding: 20px;
+.product {
+  border-radius: 16px;
+  padding: 28px;
   text-align: center;
 }
-.coin-icon { font-size: 32px; margin-bottom: 8px; }
-.coin-name { font-size: 20px; font-weight: 700; color: #f0b90b; }
-.coin-name.eth { color: #627eea; }
-.coin-contract { color: #9ca3af; font-size: 13px; margin-top: 4px; }
+.product.spot {
+  background: linear-gradient(135deg, rgba(255,200,55,0.10) 0%, rgba(255,200,55,0.04) 100%);
+  border: 1px solid rgba(255,200,55,0.3);
+}
+.product.contract {
+  background: linear-gradient(135deg, rgba(0,210,106,0.10) 0%, rgba(0,210,106,0.04) 100%);
+  border: 1px solid rgba(0,210,106,0.3);
+}
+.product-icon { font-size: 48px; margin-bottom: 12px; }
+.product-name { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+.product.spot .product-name { color: #ffc857; }
+.product.contract .product-name { color: #00d26a; }
+.product-coins { color: #d1d5db; font-size: 13px; margin: 8px 0; }
+.product-features { color: #9ca3af; font-size: 13px; margin-top: 12px; line-height: 1.6; text-align: left; padding: 0 20px; }
+.product-features li { padding: 4px 0; }
+
+.section {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 24px;
+  margin: 24px 0;
+}
+.section h3 { color: #00d4aa; font-size: 18px; margin-bottom: 16px; }
+
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.price-col {
+  background: rgba(0,0,0,0.3);
+  border-radius: 10px;
+  padding: 16px;
+  text-align: center;
+}
+.price-col.featured { border: 2px solid #00d4aa; background: rgba(0,212,170,0.08); }
+.price-col-title { color: #9ca3af; font-size: 12px; margin-bottom: 8px; }
+.price-col-name { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+.price-col.spot .price-col-name { color: #ffc857; }
+.price-col.contract .price-col-name { color: #00d26a; }
+.price-col.both .price-col-name { background: linear-gradient(90deg, #ffc857, #00d26a); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.price-col-price { font-size: 22px; font-weight: 700; color: #e0e6ed; margin-bottom: 4px; }
+.price-col-period { color: #9ca3af; font-size: 11px; }
 
 .features {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
-  margin: 30px 0;
+  margin: 24px 0;
 }
 .feature {
   background: rgba(0,212,170,0.08);
@@ -68,67 +116,45 @@ body {
 .feature-name { font-size: 14px; font-weight: 600; }
 .feature-desc { color: #9ca3af; font-size: 12px; margin-top: 4px; }
 
-.tiers {
+.steps {
   display: grid;
-  gap: 16px;
-  margin: 30px 0;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+  counter-reset: step;
 }
-.tier {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 12px;
-  padding: 20px 24px;
-}
-.tier-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-.tier-name { font-size: 20px; font-weight: 600; }
-.tier-price { font-size: 28px; color: #00d4aa; font-weight: 700; }
-.tier-address {
-  background: rgba(0,0,0,0.3);
-  padding: 12px 16px;
-  border-radius: 8px;
-  font-size: 13px;
-  color: #d1d5db;
-  word-break: break-all;
-  font-family: monospace;
-}
-
-.section {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 12px;
-  padding: 24px;
-  margin: 24px 0;
-}
-.section h3 { color: #00d4aa; font-size: 18px; margin-bottom: 16px; }
-.steps { counter-reset: step; }
 .step {
-  display: flex;
-  align-items: flex-start;
-  margin: 16px 0;
-  gap: 16px;
+  padding: 16px;
+  background: rgba(0,0,0,0.2);
+  border-radius: 8px;
+  border-left: 3px solid #00d4aa;
+  position: relative;
 }
-.step-num {
-  width: 32px;
-  height: 32px;
+.step::before {
+  counter-increment: step;
+  content: counter(step);
   background: #00d4aa;
   color: #0a0e17;
+  width: 28px; height: 28px;
   border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 14px;
-  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 13px;
+  margin-bottom: 10px;
 }
-.step-content { flex: 1; }
-.step-content strong { display: block; margin-bottom: 4px; }
-.step-content span { color: #9ca3af; font-size: 14px; }
+.step-title { color: #00d4aa; font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+.step-desc { color: #9ca3af; font-size: 12px; line-height: 1.5; }
 
-.contact {
+@media (max-width: 768px) {
+  .products { grid-template-columns: 1fr; }
+  .pricing-grid { grid-template-columns: 1fr; }
+  .steps { grid-template-columns: 1fr 1fr; }
+  .features { grid-template-columns: 1fr 1fr; }
+}
+
+.contact-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
-  margin-top: 24px;
+  margin-top: 20px;
 }
 .contact-card {
   background: rgba(255,255,255,0.05);
@@ -137,9 +163,10 @@ body {
   padding: 20px;
   text-align: center;
 }
-.contact-icon { font-size: 32px; margin-bottom: 8px; }
+.contact-icon { font-size: 28px; margin-bottom: 8px; }
 .contact-label { color: #9ca3af; font-size: 13px; margin-bottom: 4px; }
 .contact-value { color: #00d4aa; font-size: 16px; font-weight: 600; }
+.contact-value a { color: #00d4aa; text-decoration: none; }
 
 .risk {
   background: rgba(239,68,68,0.1);
@@ -158,166 +185,201 @@ body {
   color: #6b7280;
   font-size: 13px;
 }
-
-@media (max-width: 600px) {
-  .features { grid-template-columns: 1fr 1fr; }
-  .contact { grid-template-columns: 1fr; }
-  .coins { grid-template-columns: 1fr; }
-}
+.footer a { color: #00d4aa; text-decoration: none; }
 </style>
 </head>
 <body>
 <div class="container">
-  <div class="header">
-    <h1>🦞 SpeedClaw Bot20×</h1>
-    <div class="subtitle">BTC + ETH 永续合约量化交易机器人</div>
-    <div class="desc">Binance USDT-M · 20x杠杆 · 多周期EMA确认 · StochRSI信号 · 趋势反转预警</div>
+
+<div class="header">
+  <h1>🦞 SpeedClaw 现货 + 合约量化机器人</h1>
+  <p class="subtitle">现货网格 + 合约20倍杠杆 | AI技术顾问 | 7天免费试用</p>
+  <p class="desc">Binance USDT-M · 8币种现货 + BTC/ETH 永续合约 · 9档订阅方案</p>
+</div>
+
+<div class="bot-hero">
+  <h2>🚀 立即使用机器人</h2>
+  <p>Telegram 搜索 <strong>@my_botking_V2_bot</strong></p>
+  <p>发送 <code style="background:rgba(0,0,0,0.4);padding:4px 8px;border-radius:4px;color:#ffc857;">/start</code> → 选 7天试用 或 直接订阅</p>
+  <a href="https://t.me/my_botking_V2_bot" class="tg-link" target="_blank">👉 打开 BotKing V2</a>
+  <p style="margin-top:14px;font-size:13px;color:#9ca3af;">现货 + 合约 + 通票 任选 | AI 全程自动化</p>
+</div>
+
+<div class="products">
+  <div class="product spot">
+    <div class="product-icon">🟡</div>
+    <div class="product-name">BotKing 现货网格</div>
+    <div class="product-coins">8 币种 | BTC/ETH/BNB/SOL/AVAX/XRP/SUI/TON</div>
+    <ul class="product-features">
+      <li>📊 网格 + 趋势双引擎</li>
+      <li>🛡️ 8层风控保护</li>
+      <li>🔄 500k 蒙特卡洛验证</li>
+      <li>💎 TON ★ NEW 低相关性分散</li>
+      <li>🆕 v1.3 状态持久化</li>
+    </ul>
   </div>
 
-  <div class="hero">
-    <h2>🎯 交易品种</h2>
-    <div class="coins">
-      <div class="coin">
-        <div class="coin-icon">₿</div>
-        <div class="coin-name">BTC</div>
-        <div class="coin-contract">BTCUSDT 永续合约</div>
-        <div style="color:#9ca3af;font-size:12px;margin-top:8px;">流动性最强，波动稳定</div>
-      </div>
-      <div class="coin">
-        <div class="coin-icon">Ξ</div>
-        <div class="coin-name eth">ETH</div>
-        <div class="coin-contract">ETHUSDT 永续合约</div>
-        <div style="color:#9ca3af;font-size:12px;margin-top:8px;">波动更大，机会更多</div>
-      </div>
-    </div>
+  <div class="product contract">
+    <div class="product-icon">🟢</div>
+    <div class="product-name">Bot20x 合约交易</div>
+    <div class="product-coins">2 币种永续 | BTCUSDT / ETHUSDT</div>
+    <ul class="product-features">
+      <li>📊 20x 杠杆 · 多周期 EMA</li>
+      <li>🛡️ 2% 固定止损保护</li>
+      <li>📈 追踪止盈 TP1/TP2</li>
+      <li>🔔 趋势反转预警</li>
+      <li>🆕 v5.9 集成 trading-knowledge</li>
+    </ul>
   </div>
+</div>
 
-  <div class="features">
-    <div class="feature">
-      <div class="feature-icon">📊</div>
-      <div class="feature-name">多周期分析</div>
-      <div class="feature-desc">4H/1H/15m EMA确认</div>
-    </div>
-    <div class="feature">
-      <div class="feature-icon">⚡</div>
-      <div class="feature-name">20x杠杆</div>
-      <div class="feature-desc">迷你仓位运行</div>
-    </div>
-    <div class="feature">
-      <div class="feature-icon">🔒</div>
-      <div class="feature-name">自动止损</div>
-      <div class="feature-desc">2%固定止损保护</div>
-    </div>
-    <div class="feature">
-      <div class="feature-icon">📈</div>
-      <div class="feature-name">追踪止盈</div>
-      <div class="feature-desc">TP1/TP2分批出仓</div>
-    </div>
-    <div class="feature">
-      <div class="feature-icon">🔔</div>
-      <div class="feature-name">趋势预警</div>
-      <div class="feature-desc">反转提前通知</div>
-    </div>
-    <div class="feature">
-      <div class="feature-icon">🛡️</div>
-      <div class="feature-name">趋势过滤</div>
-      <div class="feature-desc">4H/1H冲突时跳过</div>
-    </div>
+<div class="features">
+  <div class="feature">
+    <div class="feature-icon">🤖</div>
+    <div class="feature-name">AI 技术顾问</div>
+    <div class="feature-desc">7×24 在机器人内对话</div>
   </div>
+  <div class="feature">
+    <div class="feature-icon">🎁</div>
+    <div class="feature-name">7 天免费试用</div>
+    <div class="feature-desc">现货/合约/通票任选</div>
+  </div>
+  <div class="feature">
+    <div class="feature-icon">⚡</div>
+    <div class="feature-name">自动激活</div>
+    <div class="feature-desc">转账后 ≤15 秒开通</div>
+  </div>
+  <div class="feature">
+    <div class="feature-icon">🔁</div>
+    <div class="feature-name">邀请返 10%</div>
+    <div class="feature-desc">永久分成</div>
+  </div>
+  <div class="feature">
+    <div class="feature-icon">💎</div>
+    <div class="feature-name">9 档订阅</div>
+    <div class="feature-desc">$59 月付 ~ $2599 终身</div>
+  </div>
+  <div class="feature">
+    <div class="feature-icon">🛡️</div>
+    <div class="feature-name">PM2 守护</div>
+    <div class="feature-desc">5 进程 24h 在线</div>
+  </div>
+</div>
 
-  <div class="section">
-    <h3>💰 三档订阅</h3>
-    <div class="tiers">
-      <div class="tier">
-        <div class="tier-header">
-          <span class="tier-name">🌙 月付会员</span>
-          <span class="tier-price">$59</span>
-        </div>
-        <div style="color:#9ca3af;font-size:13px;margin-bottom:12px;">有效期：30天 · 灵活试用</div>
+<div class="section">
+  <h3>💎 订阅价格（9 档方案）</h3>
+  <div class="pricing-grid">
+    <div class="price-col spot">
+      <div class="price-col-title">🟡 BotKing 现货</div>
+      <div style="margin:8px 0;">
+        <div class="price-col-price">$59</div>
+        <div class="price-col-period">月付</div>
       </div>
-      <div class="tier" style="border-color:#00d4aa;background:rgba(0,212,170,0.1);">
-        <div class="tier-header">
-          <span class="tier-name">💎 年付会员 🔥最受欢迎</span>
-          <span class="tier-price">$399</span>
-        </div>
-        <div style="color:#9ca3af;font-size:13px;margin-bottom:12px;">有效期：365天 · 省 $309/年 (44%)</div>
+      <div style="margin:8px 0;">
+        <div class="price-col-price" style="color:#00d26a;">$359</div>
+        <div class="price-col-period">年付 · 🔥推荐</div>
       </div>
-      <div class="tier">
-        <div class="tier-header">
-          <span class="tier-name">🚀 终身会员</span>
-          <span class="tier-price">$1,299</span>
-        </div>
-        <div style="color:#9ca3af;font-size:13px;margin-bottom:12px;">永久使用 · 一次到位</div>
+      <div style="margin:8px 0;">
+        <div class="price-col-price">$999</div>
+        <div class="price-col-period">终身</div>
       </div>
     </div>
-    <div style="margin-top:20px;padding:16px;background:rgba(0,212,170,0.08);border:1px solid rgba(0,212,170,0.3);border-radius:8px;text-align:center;">
-      <div style="color:#9ca3af;font-size:12px;margin-bottom:6px;">💎 USDT 付款地址 (BSC BEP20)</div>
-      <div class="tier-address">0x344FfCe2f7B8f580D4e054F7213cb231CD15c3cd</div>
-    </div>
-  </div>
 
-  <div class="section">
-    <h3>📋 使用流程</h3>
-    <div class="steps">
-      <div class="step">
-        <div class="step-num">1</div>
-        <div class="step-content">
-          <strong>向套餐地址转账 USDT</strong>
-          <span>使用 TP钱包/小狐狸 等钱包扫码支付（BEP20链）</span>
-        </div>
+    <div class="price-col contract featured">
+      <div class="price-col-title">🟢 Bot20x 合约</div>
+      <div style="margin:8px 0;">
+        <div class="price-col-price">$99</div>
+        <div class="price-col-period">月付</div>
       </div>
-      <div class="step">
-        <div class="step-num">2</div>
-        <div class="step-content">
-          <strong>联系管理员</strong>
-          <span>发送转账截图 + 您的邮箱地址</span>
-        </div>
+      <div style="margin:8px 0;">
+        <div class="price-col-price" style="color:#00d26a;">$599</div>
+        <div class="price-col-period">年付 · 🔥推荐</div>
       </div>
-      <div class="step">
-        <div class="step-num">3</div>
-        <div class="step-content">
-          <strong>收到完整策略文件</strong>
-          <span>包含 bot脚本 + 配置教程 + Web控制台 + 策略手册</span>
-        </div>
+      <div style="margin:8px 0;">
+        <div class="price-col-price">$1599</div>
+        <div class="price-col-period">终身</div>
       </div>
-      <div class="step">
-        <div class="step-num">4</div>
-        <div class="step-content">
-          <strong>启动机器人</strong>
-          <span>配置API密钥 → 运行脚本 → 全自动交易</span>
-        </div>
+    </div>
+
+    <div class="price-col both">
+      <div class="price-col-title">🟡🟢 通票</div>
+      <div style="margin:8px 0;">
+        <div class="price-col-price">$149</div>
+        <div class="price-col-period">月付</div>
+      </div>
+      <div style="margin:8px 0;">
+        <div class="price-col-price" style="color:#00d26a;">$899</div>
+        <div class="price-col-period">年付 · 🔥最省</div>
+      </div>
+      <div style="margin:8px 0;">
+        <div class="price-col-price">$2599</div>
+        <div class="price-col-period">终身</div>
       </div>
     </div>
   </div>
+  <div style="margin-top:16px;padding:14px;background:rgba(0,212,170,0.08);border:1px solid rgba(0,212,170,0.3);border-radius:8px;text-align:center;">
+    <div style="color:#9ca3af;font-size:12px;margin-bottom:6px;">💎 USDT 付款地址 (BSC BEP20)</div>
+    <div style="background:rgba(0,0,0,0.3);padding:10px 14px;border-radius:6px;font-size:13px;color:#00d4aa;word-break:break-all;font-family:monospace;">0x344FfCe2f7B8f580D4e054F7213cb231CD15c3cd</div>
+  </div>
+</div>
 
-  <div class="section">
-    <h3>📬 联系方式</h3>
-    <div class="contact">
-      <div class="contact-card">
-        <div class="contact-icon">💬</div>
-        <div class="contact-label">Telegram</div>
-        <div class="contact-value">@okbobox</div>
-      </div>
-      <div class="contact-card">
-        <div class="contact-icon">📧</div>
-        <div class="contact-label">Email</div>
-        <div class="contact-value">speedclawx@gmail.com</div>
-      </div>
+<div class="section">
+  <h3>📋 使用流程（3 步开始）</h3>
+  <div class="steps">
+    <div class="step">
+      <div class="step-title">打开机器人</div>
+      <div class="step-desc">Telegram 搜索 @my_botking_V2_bot 发送 /start</div>
+    </div>
+    <div class="step">
+      <div class="step-title">选 7 天试用 或订阅</div>
+      <div class="step-desc">现货/合约/通票 任选</div>
+    </div>
+    <div class="step">
+      <div class="step-title">转账 USDT</div>
+      <div class="step-desc">向 0x344F...c3cd 转账对应金额 (BSC BEP20)</div>
+    </div>
+    <div class="step">
+      <div class="step-title">机器人自动激活</div>
+      <div class="step-desc">≤15 秒扫描到账立即开通</div>
+    </div>
+    <div class="step">
+      <div class="step-title">开始使用</div>
+      <div class="step-desc">/status /balance /positions 查看</div>
     </div>
   </div>
+</div>
 
-  <div class="risk">
-    <div class="risk-title">⚠️ 风险提示</div>
-    <div class="risk-text">
-      本项目仅供学习和研究使用。实盘交易存在风险，请确保充分理解策略后再使用。
-      20x杠杆具有高风险，可能导致本金损失。建议使用闲钱操作，并持续监控策略运行状态。
+<div class="section">
+  <h3>📬 联系方式</h3>
+  <div class="contact-grid">
+    <div class="contact-card">
+      <div class="contact-icon">💬</div>
+      <div class="contact-label">Telegram 机器人</div>
+      <div class="contact-value"><a href="https://t.me/my_botking_V2_bot" target="_blank">@my_botking_V2_bot</a></div>
+    </div>
+    <div class="contact-card">
+      <div class="contact-icon">📧</div>
+      <div class="contact-label">Email</div>
+      <div class="contact-value">speedclawx@gmail.com</div>
     </div>
   </div>
+</div>
 
-  <div class="footer">
-    <p>SpeedClaw Bot20× v5.2 · BTC + ETH 永续合约量化交易</p>
-    <p style="margin-top:8px;"><a href="botking.html" style="color:#00d4aa;text-decoration:none;">🦞 BotKing v1.3 现货版</a> · GitHub: github.com/okbabybo/SpeedClaw-Bot20x-Skill</p>
+<div class="risk">
+  <div class="risk-title">⚠️ 风险提示</div>
+  <div class="risk-text">
+    本项目仅供学习和研究使用。实盘交易存在风险，请确保充分理解策略后再使用。
+    20x 杠杆具有高风险，可能导致本金损失。建议使用闲钱操作，并持续监控策略运行状态。
   </div>
+</div>
+
+<div class="footer">
+  <p>🦞 SpeedClaw BotKing v1.3 + Bot20x v5.9 · 现货+合约量化交易</p>
+  <p style="margin-top:8px;">
+    <a href="botking.html">BotKing v1.3 现货版详细</a> · 
+    GitHub: <a href="https://github.com/okbabybo/SpeedClaw-Bot20x-Skill" target="_blank">okbabybo/SpeedClaw-Bot20x-Skill</a>
+  </p>
+</div>
 </div>
 </body>
 </html>
