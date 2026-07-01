@@ -118,9 +118,15 @@ body {
 
 .steps {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 12px;
   counter-reset: step;
+}
+@media (max-width: 768px) {
+  .steps { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 480px) {
+  .steps { grid-template-columns: 1fr; }
 }
 .step {
   padding: 16px;
@@ -150,36 +156,30 @@ body {
   .features { grid-template-columns: 1fr 1fr; }
 }
 
-.contact-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  margin-top: 20px;
-}
-@media (max-width: 768px) {
-  .contact-grid { grid-template-columns: 1fr 1fr; }
-}
-.contact-card {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 12px;
-  padding: 20px 14px;
-  text-align: center;
+.contact-list {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 110px;
+  gap: 10px;
+  margin-top: 16px;
+  max-width: 520px;
 }
-.contact-icon { font-size: 26px; margin-bottom: 6px; }
-.contact-label { color: #9ca3af; font-size: 12px; margin-bottom: 4px; letter-spacing: 0.3px; }
-.contact-value { color: #00d4aa; font-size: 14px; font-weight: 600; word-break: break-all; line-height: 1.4; }
-.contact-value a { color: #00d4aa; text-decoration: none; }
-.contact-value a:hover { text-decoration: underline; }
+.contact-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.contact-item .ci { font-size: 22px; flex-shrink: 0; width: 30px; text-align: center; }
+.contact-item .cl { color: #9ca3af; font-size: 13px; flex-shrink: 0; min-width: 130px; }
+.contact-item .cv { color: #00d4aa; font-size: 14px; font-weight: 600; word-break: break-all; }
+.contact-item .cv a { color: #00d4aa; text-decoration: none; }
+.contact-item .cv a:hover { text-decoration: underline; }
 .copy-btn {
-  display: inline-block;
-  margin-top: 8px;
-  padding: 4px 10px;
+  margin-left: auto;
+  padding: 5px 12px;
   font-size: 11px;
   background: rgba(0,212,170,0.15);
   border: 1px solid rgba(0,212,170,0.3);
@@ -187,6 +187,7 @@ body {
   color: #00d4aa;
   cursor: pointer;
   user-select: none;
+  flex-shrink: 0;
 }
 .copy-btn:hover { background: rgba(0,212,170,0.25); }
 
@@ -346,7 +347,7 @@ body {
 </div>
 
 <div class="section">
-  <h3>📋 使用流程（3 步开始）</h3>
+  <h3>📋 使用流程</h3>
   <div class="steps">
     <div class="step">
       <div class="step-title">打开机器人</div>
@@ -354,7 +355,7 @@ body {
     </div>
     <div class="step">
       <div class="step-title">选 7 天试用 或订阅</div>
-      <div class="step-desc">现货/合约/通票 任选</div>
+      <div class="step-desc">现货/合约/通票 任选 · 免费试用</div>
     </div>
     <div class="step">
       <div class="step-title">转账 USDT</div>
@@ -365,38 +366,36 @@ body {
       <div class="step-desc">≤15 秒扫描到账立即开通</div>
     </div>
     <div class="step">
-      <div class="step-title">开始使用</div>
-      <div class="step-desc">/status /balance /positions 查看</div>
+      <div class="step-title">绑定 Binance API</div>
+      <div class="step-desc">机器人内发送 /bindapi 按提示粘贴 API Key + Secret</div>
+    </div>
+    <div class="step">
+      <div class="step-title">开始交易</div>
+      <div class="step-desc">/status /balance /positions 查看机器人状态</div>
     </div>
   </div>
 </div>
 
 <div class="section">
   <h3>📬 联系方式</h3>
-  <div class="contact-grid">
-    <div class="contact-card">
-      <div class="contact-icon">💬</div>
-      <div class="contact-label">Telegram 机器人</div>
-      <div class="contact-value"><a href="https://t.me/my_botking_V2_bot" target="_blank">@my_botking_V2_bot</a></div>
+  <div class="contact-list">
+    <div class="contact-item">
+      <span class="ci">💬</span>
+      <span class="cl">Telegram 机器人</span>
+      <span class="cv"><a href="https://t.me/my_botking_V2_bot" target="_blank">@my_botking_V2_bot</a></span>
       <span class="copy-btn" onclick="navigator.clipboard.writeText('@my_botking_V2_bot');this.textContent='✓ 已复制'">复制</span>
     </div>
-    <div class="contact-card">
-      <div class="contact-icon">💎</div>
-      <div class="contact-label">USDT 收款地址 (BSC)</div>
-      <div class="contact-value">0x344F...3cd</div>
-      <span class="copy-btn" onclick="navigator.clipboard.writeText('0x344FfCe2f7B8f580D4e054F7213cb231CD15c3cd');this.textContent='✓ 已复制'">复制完整地址</span>
+    <div class="contact-item">
+      <span class="ci">💎</span>
+      <span class="cl">USDT 收款地址 (BSC BEP20)</span>
+      <span class="cv">0x344FfCe2f7B8f580D4e054F7213cb231CD15c3cd</span>
+      <span class="copy-btn" onclick="navigator.clipboard.writeText('0x344FfCe2f7B8f580D4e054F7213cb231CD15c3cd');this.textContent='✓ 已复制'">复制</span>
     </div>
-    <div class="contact-card">
-      <div class="contact-icon">📧</div>
-      <div class="contact-label">Email</div>
-      <div class="contact-value">speedclawx@gmail.com</div>
+    <div class="contact-item">
+      <span class="ci">📧</span>
+      <span class="cl">Email</span>
+      <span class="cv">speedclawx@gmail.com</span>
       <span class="copy-btn" onclick="navigator.clipboard.writeText('speedclawx@gmail.com');this.textContent='✓ 已复制'">复制</span>
-    </div>
-    <div class="contact-card">
-      <div class="contact-icon">🐙</div>
-      <div class="contact-label">GitHub 开源</div>
-      <div class="contact-value"><a href="https://github.com/okbabybo/SpeedClaw-Bot20x-Skill" target="_blank">okbabybo/SpeedClaw</a></div>
-      <span class="copy-btn" onclick="navigator.clipboard.writeText('https://github.com/okbabybo/SpeedClaw-Bot20x-Skill');this.textContent='✓ 已复制'">复制链接</span>
     </div>
   </div>
 </div>
