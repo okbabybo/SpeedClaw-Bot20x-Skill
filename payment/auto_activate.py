@@ -365,6 +365,7 @@ def scan_block(w3, block_number, owner_address):
                     'tx_hash': tx['hash'].hex() if hasattr(tx['hash'], 'hex') else tx['hash'],
                     'amount': amount,
                     'memo': memo,
+                    'from': tx.get('from', ''),
                 })
             except Exception as ex:
                 log.debug(f"parse tx fail: {ex}")
@@ -613,8 +614,8 @@ def main_loop():
             if latest > current or balance_increased:
                 if balance_increased:
                     log.info(f"💰 余额增加: {current_balance/10**6} → {new_balance/10**6} USDT")
-                    # 余额增加：扫描最近10个块
-                    start = max(current, latest - 10)
+                    # 余额增加：扫描最近100个块（兜底大额/跨块转账，避免漏单）
+                    start = max(current, latest - 100)
                 else:
                     # 纯跟块：只扫最新块
                     start = current
@@ -643,8 +644,23 @@ def main_loop():
                         amount_int = int(amount)
                         plan_info = AMOUNT_TO_PLAN.get(amount_int)
                         if not plan_info:
-                            log.info(f"  ⏭ 金额不匹配: {amount} USDT")
+                            # 陌生金额入账：推老板审核（不静默跳过，避免漏推/漏单）
+                            log.info(f"  ⚠ 陌生金额入账: {amount} USDT (不在订阅档位), 推送老板审核")
                             state.setdefault('processed_txs', []).append(tx_hash)
+                            save_state(state)
+                            try:
+                                alert_msg = (
+                                    f"⚠️ **陌生金额入账待审核**\n\n"
+                                    f"金额: ${amount} USDT\n"
+                                    f"From: `{tx_info.get('from', '?')}`\n"
+                                    f"交易: `{tx_hash[:20]}...`\n"
+                                    f"🔗 https://bscscan.com/tx/{tx_hash}\n\n"
+                                    f"此金额不在订阅档位 [{list(AMOUNT_TO_PLAN.keys())}] 内\n"
+                                    f"回复 /approve {tx_hash} 或忽略"
+                                )
+                                send_telegram(OWNER_TELEGRAM_ID, alert_msg)
+                            except Exception as ex:
+                                log.error(f"陌生金额告警推送失败: {ex}")
                             continue
 
                         # memo里有产品关键词 → 覆盖产品
